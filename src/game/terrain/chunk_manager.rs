@@ -1,7 +1,9 @@
 use std::collections::{HashMap, HashSet};
+use std::sync::{Arc, Mutex};
 use easy_gpu::assets::Material;
 use easy_gpu::assets_manager::Handle;
 use easy_gpu::frame::Frame;
+use rayon::prelude::{IntoParallelRefIterator, ParallelIterator};
 use crate::engine::file_manager::FileManager;
 use crate::engine::input_manager::InputManager;
 use crate::game::terrain::chunk::{CHUNK_SIZE, ChunkPosition, ChunkData, Chunk};
@@ -9,10 +11,10 @@ use crate::game::terrain::terrain_generator::TerrainGenerator;
 use crate::game::terrain::tile::Tile;
 
 pub struct ChunkManager{
-    dirty: bool,
+    pub dirty: bool,
     chunks: HashMap<ChunkPosition,Chunk>,
     data_load_queue: HashSet<ChunkPosition>,
-    mesh_load_queue: HashSet<ChunkPosition>,
+    mesh_load_queue: Vec<ChunkPosition>,
     mesh_materials: Vec<Handle<Material>>
 }
 pub const CHUNK_LOAD_DISTANCE: i32 = 3;
@@ -23,7 +25,7 @@ impl ChunkManager{
             dirty: false,
             chunks: HashMap::new(),
             data_load_queue: HashSet::new(),
-            mesh_load_queue: HashSet::new(),
+            mesh_load_queue: Vec::new(),
             mesh_materials: vec![],
         }
     }
@@ -64,7 +66,6 @@ impl ChunkManager{
     }
 
     pub fn update_mesh_queue(&mut self,player_pos: [f32;2]){
-        self.mesh_load_queue.clear();
         for (chunk_pos,chunk) in &mut self.chunks{
             let x_dist = ((chunk_pos.x * CHUNK_SIZE as i32) as f32 + (CHUNK_SIZE as f32/2.) - player_pos[0]).abs();
             let y_dist = ((chunk_pos.y * CHUNK_SIZE as i32) as f32 + (CHUNK_SIZE as f32/2.) - player_pos[1]).abs();
@@ -75,37 +76,77 @@ impl ChunkManager{
                 }
             }
             else if chunk.dirty(){
-                self.mesh_load_queue.insert(chunk_pos.clone());
+                self.mesh_load_queue.push(chunk_pos.clone());
+                self.dirty = true;
             }
         }
     }
 
-    pub fn load_chunks_data(&mut self, file_manager: &FileManager,terrain_generator: &mut TerrainGenerator){
-        for chunk_pos in &self.data_load_queue {
-            let chunk_data = if let Some(chunk_data) = file_manager.load_chunk(chunk_pos){
-                chunk_data
-            }
-            else{
-                ChunkData::new(chunk_pos,terrain_generator)
-            };
-            let chunk = Chunk::new(chunk_data);
-            self.chunks.insert(chunk_pos.clone(), chunk);
+    pub fn load_chunks_data(
+        &mut self,
+        file_manager: &Arc<FileManager>,
+        terrain_generator: &Arc<Mutex<TerrainGenerator>>,
+    ) {
+        let loaded_chunks: Vec<(ChunkPosition, Chunk)> = self
+            .data_load_queue
+            .par_iter()
+            .map(|chunk_pos| {
+                let chunk_data = if let Some(chunk_data) = file_manager.load_chunk(chunk_pos) {
+                    chunk_data
+                } else {
+                    let mut generator = terrain_generator.lock().unwrap();
+                    ChunkData::new(chunk_pos, &mut *generator)
+                };
+
+                let chunk = Chunk::new(chunk_data);
+
+                (chunk_pos.clone(), chunk)
+            })
+            .collect();
+
+        for (chunk_pos, chunk) in loaded_chunks {
+            self.chunks.insert(chunk_pos, chunk);
         }
     }
 
-    pub fn generate_chunk_meshes(&mut self, egpu: &mut easy_gpu::Renderer){
-        for chunk_pos in &self.mesh_load_queue {
-            let (fg_dirty,bg_dirty) = {
-                let chunk = self.chunks.get_mut(chunk_pos).expect("chunk doesn't exist");
-                (chunk.dirty[1],chunk.dirty[0])
-            };
-            if fg_dirty{
-                let borders = self.chunk_borders(chunk_pos,1);
-                self.chunks.get_mut(chunk_pos).expect("chunk doesn't exist").build_mesh(egpu, 1, chunk_pos, borders);
-            }
-            if bg_dirty{
-                let borders = self.chunk_borders(chunk_pos,0);
-                self.chunks.get_mut(chunk_pos).expect("chunk doesn't exist").build_mesh(egpu, 0, chunk_pos, borders);
+    pub fn generate_chunk_meshes(&mut self, egpu: &mut easy_gpu::Renderer) {
+        if self.mesh_load_queue.len() == 0{
+            return;
+        }
+        let jobs: Vec<_> = self
+            .mesh_load_queue
+            .drain(..self.mesh_load_queue.len().min(2))
+            .flat_map(|chunk_pos| {
+                let chunk = self.chunks.get_mut(&chunk_pos).expect("chunk doesn't exist");
+                let mut dirty_layers = Vec::new();
+                if chunk.dirty[1] {
+                    dirty_layers.push((chunk_pos.clone(), 1));
+                }
+                if chunk.dirty[0] {
+                    dirty_layers.push((chunk_pos, 0));
+                }
+                chunk.remove_mark();
+                dirty_layers
+            })
+            .collect();
+
+
+        let generated_meshes: Vec<_> = jobs
+            .par_iter()
+            .map(|(chunk_pos, layer)| {
+                let borders = self.chunk_borders(chunk_pos, *layer);
+                let chunk = self.chunks.get(chunk_pos).expect("chunk doesn't exist");
+                let mesh_data = chunk.build_mesh(*layer, chunk_pos, borders);
+
+                (chunk_pos, *layer, mesh_data)
+            })
+            .collect();
+
+        for (chunk_pos, layer, mesh_data) in generated_meshes {
+            let chunk = self.chunks.get_mut(&chunk_pos).expect("chunk doesn't exist");
+            if let Some((vertices,indices)) = mesh_data {
+                let mesh = egpu.create_mesh(vertices.as_slice(),indices.as_slice());
+                chunk.set_mesh(layer,mesh);
             }
         }
     }
@@ -143,18 +184,23 @@ impl ChunkManager{
         }
     }
 
-    pub fn save_chunks(&self,file_manager: &FileManager){
-        for chunk_pos in &self.mesh_load_queue {
-            let chunk = self.chunks.get(chunk_pos).expect("chunk doesn't exist");
-            if chunk.save{
-                match file_manager.save_chunk(chunk.data(),chunk_pos){
-                    Ok(_) => {}
-                    Err(error) => {
-                        println!("{}",error);
+    pub fn save_chunks(&self, file_manager: &Arc<FileManager>) {
+        self.mesh_load_queue
+            .par_iter()
+            .for_each(|chunk_pos| {
+                let chunk = self
+                    .chunks
+                    .get(chunk_pos)
+                    .expect("chunk doesn't exist");
+
+                if chunk.save {
+                    if let Err(error) =
+                        file_manager.save_chunk(chunk.data(), chunk_pos)
+                    {
+                        println!("{}", error);
                     }
                 }
-            }
-        }
+            });
     }
 
     pub fn draw(&self, frame: &mut Frame){

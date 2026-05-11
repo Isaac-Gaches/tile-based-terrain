@@ -1,4 +1,5 @@
 use std::sync::Arc;
+use std::time::Instant;
 use winit::application::ApplicationHandler;
 use winit::event::WindowEvent;
 use winit::event_loop::ActiveEventLoop;
@@ -11,9 +12,10 @@ use crate::game::game::Game;
 pub struct App{
     window: Option<Arc<Window>>,
     renderer: Option<Renderer>,
-    file_manager: FileManager,
+    file_manager: Arc<FileManager>,
     input_manager: InputManager,
     game: Game,
+    last_update_time: Instant,
 }
 
 impl App{
@@ -21,9 +23,10 @@ impl App{
         Self{
             window: None,
             renderer: None,
-            file_manager: FileManager::new(),
+            file_manager: Arc::new(FileManager::new()),
             input_manager: Default::default(),
             game: Game::new(),
+            last_update_time: Instant::now(),
         }
     }
 }
@@ -70,12 +73,24 @@ impl ApplicationHandler for App{
             }
 
             WindowEvent::RedrawRequested => {
-                self.game.update(&mut renderer.egpu,&mut self.file_manager,&mut self.input_manager);
-                renderer.update(self.game.tiles(),&self.input_manager,self.game.player_position);
+                let dt = self.last_update_time.elapsed().as_secs_f32();
+                self.last_update_time = Instant::now();
+
+                self.game.update(&mut renderer.egpu,&self.file_manager,&mut self.input_manager,dt);
+
+                renderer.update(&self.input_manager, self.game.player_position,dt);
+
+                if self.game.chunk_manager.dirty{
+                    renderer.lighting_engine.update(&mut renderer.egpu, self.game.extract_tiles(), self.game.player_position);
+                }
 
                 let frame = renderer.egpu.begin_frame();
 
-                renderer.lighting_engine.compute(frame);
+                if self.game.chunk_manager.dirty{
+                    renderer.lighting_engine.compute(frame);
+                    self.game.chunk_manager.dirty = false;
+                }
+
                 self.game.draw(frame);
 
                 frame.sort_by_material();

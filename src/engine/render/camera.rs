@@ -24,23 +24,22 @@ impl Camera{
         }
     }
 
-    pub fn update(&mut self,player_pos: [f32;2],input: &InputManager,egpu: &mut easy_gpu::Renderer){
-        const FOLLOW_SPEED: f32 = 3.;
-
+    pub fn update(&mut self,player_pos: [f32;2],input: &InputManager,egpu: &mut easy_gpu::Renderer,dt:f32){
+        const FOLLOW_SPEED: f32 = 4.0;
         let diff = [player_pos[0] - self.data.position[0],player_pos[1] - self.data.position[1]];
-        self.data.position = [self.data.position[0] + (diff[0]/FOLLOW_SPEED),self.data.position[1] + (diff[1]/FOLLOW_SPEED)];
+        self.data.position = [self.data.position[0] + (diff[0]*FOLLOW_SPEED) * dt,self.data.position[1] + (diff[1]*FOLLOW_SPEED)* dt];
         self.data.ratio = egpu.window_aspect();
 
-        const ZOOM: f32 = 0.001;
+        const ZOOM: f32 = 0.01;
 
         if input.plus{
-            self.data.zoom += ZOOM;
+            self.data.zoom += ZOOM * dt;
         }
         if input.minus{
-            self.data.zoom -= ZOOM;
+            self.data.zoom -= ZOOM * dt;
         }
 
-        self.data.zoom = self.data.zoom.clamp(0.015,0.1);
+        self.data.zoom = self.data.zoom.clamp(0.01,0.1);
 
         egpu.write_buffer(self.buffer,self.data);
     }

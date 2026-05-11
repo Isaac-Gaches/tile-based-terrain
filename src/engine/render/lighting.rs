@@ -232,7 +232,7 @@ impl LightingEngine{
             self.occlusion_pipeline,
             dispatch
         );
-        for _ in 0..32{
+        for _ in 0..24{
             frame.compute(
                 self.diffuse_bg_a_to_b,
                 self.diffuse_horizontal_pipeline,

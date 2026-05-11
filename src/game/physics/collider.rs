@@ -3,8 +3,8 @@ use crate::game::terrain::chunk_manager::ChunkManager;
 
 //constants
 const SUB_STEPS:f32 = 5.;
-const TERMINAL_VELOCITY:f32 = 1.0;
-const GRAVITY:f32 = 0.03;
+const TERMINAL_VELOCITY:f32 = 100.0;
+const GRAVITY:f32 = 60.0;
 //components
 pub struct Collider{
     left:f32,
@@ -31,13 +31,13 @@ impl Collider{
             auto_jump,
         }
     }
-    pub fn handle_collider(&mut self,transform: &mut Transform,terrain: &ChunkManager){
+    pub fn handle_collider(&mut self,transform: &mut Transform,terrain: &ChunkManager,dt: f32){
         //velocity update
-        self.y_vel -= GRAVITY;
+        self.y_vel -= GRAVITY * dt;
         if self.y_vel < -TERMINAL_VELOCITY { self.y_vel = -TERMINAL_VELOCITY; }
         //sub steps
-        let x_vel = self.x_vel/SUB_STEPS;
-        let y_vel = self.y_vel/SUB_STEPS;
+        let x_vel = (self.x_vel*dt)/SUB_STEPS;
+        let y_vel = (self.y_vel*dt)/SUB_STEPS;
 
         for _i in 0..SUB_STEPS as i8{
             //x
@@ -54,7 +54,7 @@ impl Collider{
                 for y in (bottom..=top).rev(){
                     if terrain.get_tile(x,y,1).unwrap().id != 0{
                         if self.auto_jump && y == bottom && (left.min(right)..=right.max(left)).find(|i|{ terrain.get_tile(*i,top+1,1).unwrap().id != 0 }).is_none(){
-                            transform.translation[1] += 1.;// 0.05 + x_vel*0.1;
+                            transform.translation[1] += 1.;
                         }
                         else{
                             transform.translation = origin;

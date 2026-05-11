@@ -82,6 +82,11 @@ impl Chunk{
         }
     }
 
+    pub fn remove_mark(&mut self){
+        self.dirty[0] = false;
+        self.dirty[1] = false;
+    }
+
     pub fn has_mesh(&self)-> bool{
         self.meshes[0].is_some() || self.meshes[1].is_some()
     }
@@ -110,7 +115,7 @@ impl Chunk{
         }
     }
 
-    pub fn build_mesh(&mut self,egpu: &mut easy_gpu::Renderer,layer: usize, position: &ChunkPosition,borders: ChunkBorders){
+    pub fn build_mesh(&self,layer: usize, position: &ChunkPosition,borders: ChunkBorders) -> Option<(Vec<Vertex>,Vec<u16>)>{
         let mut vertices = vec![];
         let mut indices = vec![];
 
@@ -120,7 +125,8 @@ impl Chunk{
             for y in 0..CHUNK_SIZE{
                 if self.get_tile(x,y,layer).id > 0{
                     let neighbours = self.tile_neighbours(x as i32,y as i32,layer,&borders);
-                    let marching_squares_coord = Self::map_marching_squares(neighbours);
+                    let mask = Self::build_mask(neighbours);
+                    let marching_squares_coord = Self::map_marching_squares(mask);
 
                     let world_x = x as f32 + position.x as f32 * CHUNK_SIZE as f32;
                     let world_y = y as f32 + position.y as f32 * CHUNK_SIZE as f32;
@@ -157,18 +163,20 @@ impl Chunk{
             }
         }
 
-        self.dirty[layer] = false;
-
-        let fg_index_count = indices.len() as u32;
-        if fg_index_count == 0 {
-            return;
+        let index_count = indices.len() as u32;
+        if index_count == 0 {
+            return None;
         }
 
-        let handle = egpu.create_mesh(vertices.as_slice(),indices.as_slice());
-        self.meshes[layer] = Some(handle);
+        Some((vertices,indices))
     }
 
-    fn tile_neighbours(&self,x: i32, y: i32, layer: usize, borders: &ChunkBorders) -> Vec<i32>{
+    pub fn set_mesh(&mut self,layer: usize,mesh: Handle<Mesh>){
+        self.meshes[layer] = Some(mesh);
+        self.dirty[layer] = false;
+    }
+
+    fn tile_neighbours(&self,x: i32, y: i32, layer: usize, borders: &ChunkBorders) -> Vec<u8>{
         let mut neighbours = Vec::new();
 
         for i in -1..=1{
@@ -176,83 +184,44 @@ impl Chunk{
                 if i == 0 && j == 0 {
                     continue;
                 }
-                if self.get_tile(x as usize,y as usize,layer).id > 0{
-                    let neighbour = if x+i < 0 || x+i == CHUNK_SIZE as i32 || y+j < 0 || y+j == CHUNK_SIZE as i32 {
-                        if if j == 1 && y == CHUNK_SIZE as i32 - 1{
-                            borders.top[(x+i) as usize+1]
-                        }
-                        else if j == -1 && y == 0{
-                            borders.bottom[(x+i) as usize+1]
-                        }
-                        else if i == 1{
-                            borders.right[(y+j) as usize]
-                        }
-                        else{
-                            borders.left[(y+j) as usize]
-                        }{ 1 } else { 0 }
+                let neighbour = if x+i < 0 || x+i == CHUNK_SIZE as i32 || y+j < 0 || y+j == CHUNK_SIZE as i32 {
+                    if if j == 1 && y == CHUNK_SIZE as i32 - 1{
+                        borders.top[(x+i+1) as usize]
                     }
-                    else if self.get_tile((x+i) as usize,(y+j) as usize, layer).id > 0
-                    { 1 } else { 0 };
-
-                    neighbours.push(neighbour);
+                    else if j == -1 && y == 0{
+                        borders.bottom[(x+i+1) as usize]
+                    }
+                    else if i == 1{
+                        borders.right[(y+j) as usize]
+                    }
+                    else{
+                        borders.left[(y+j) as usize]
+                    }{ 1 } else { 0 }
                 }
+                else if self.get_tile((x+i) as usize,(y+j) as usize, layer).id > 0
+                { 1 } else { 0 };
+
+                neighbours.push(neighbour);
             }
         }
 
         neighbours
     }
 
-    fn map_marching_squares(neighbours: Vec<i32>) -> [f32;2]{
-        if neighbours == vec![1; 8] { [1.,2.] } // no sides
-        else if neighbours[1] == 1 && neighbours[6] == 1 && neighbours[4] == 1 && neighbours[3] == 1 { //all +
-            if neighbours[0] == 0 && neighbours[2] == 0 && neighbours[5] == 0 && neighbours[7] == 0 {[4.,4.]}//+
-            else if neighbours[0] == 1 && neighbours[7] == 1 && neighbours[2] == 0 && neighbours[5] == 0{[5.,6.]}
-            else if neighbours[2] == 1 && neighbours[5] == 1 && neighbours[0] == 0 && neighbours[7] == 0 {[4.,6.]}
-            else if neighbours[0] == 1 && neighbours[2] == 0 && neighbours[5] == 0{[1.,5.]} //top right and right top ledge
-            else if neighbours[0] == 0 && neighbours[2] == 1 && neighbours[7] == 0{[1.,6.]} //bottom right and right bottom ledge
-            else if neighbours[5] == 0 && neighbours[7] == 1 && neighbours[2] == 0 {[3.,5.]} //bottom left and left bottom ledge
-            else if neighbours[5] == 1 && neighbours[7] == 0 && neighbours[0] == 0{[3.,6.]} //top left and left top ledge
-            else if neighbours[0] == 0 && neighbours[5] == 0 {[0.,6.]} //bottom prong
-            else if neighbours[2] == 0 && neighbours[7] == 0 {[2.,5.]} //top prong
-            else if neighbours[0] == 0 && neighbours[2] == 0 {[2.,6.]} //left prong
-            else if neighbours[5] == 0 && neighbours[7] == 0 {[0.,5.]} //right prong
-            else if neighbours[0] == 0 {[4.,2.]} //bottom left corner open
-            else if neighbours[2] == 0 {[4.,3.]} //top left corner open
-            else if neighbours[7] == 0 {[2.,4.]} //top right corner open
-            else if neighbours[5] == 0 {[3.,4.]} //bottom right corner open
-            else{ [4.,4.] } // +
+    #[inline(always)]
+    fn map_marching_squares(mask: u8) -> [f32; 2] {
+        LUT[mask as usize]
+    }
+
+    #[inline(always)]
+    fn build_mask(n: Vec<u8>) -> u8 {
+        let mut mask = 0;
+
+        for i in 0..8 {
+            mask |= (n[i] & 1) << i;
         }
-        else if neighbours[1] == 1 && neighbours[6] == 1 && neighbours[3] == 1 && neighbours[0] == 1 && neighbours[5] == 1 { [1.,1.] } // top open
-        else if neighbours[1] == 1 && neighbours[6] == 1 && neighbours[4] == 1 && neighbours[2] == 1 && neighbours[7] == 1 { [1.,3.] } // bottom open
-        else if neighbours[6] == 1 && neighbours[3] == 1 && neighbours[4] == 1 && neighbours[5] == 1 && neighbours[7] == 1 { [0.,2.] } // left open
-        else if neighbours[1] == 1 && neighbours[3] == 1 && neighbours[4] == 1 && neighbours[2] == 1 && neighbours[0] == 1 { [2.,2.]  } // right open
-        else if neighbours[1] == 1 && neighbours[6] == 1 && neighbours[3] == 1  && neighbours[5] == 1{ [5.,2.] } // left top ledge
-        else if neighbours[1] == 1 && neighbours[6] == 1 && neighbours[3] == 1  && neighbours[0] == 1{ [6.,2.] } // right top ledge
-        else if neighbours[1] == 1 && neighbours[6] == 1 && neighbours[4] == 1  && neighbours[2] == 1{ [6.,3.] } // left bottom ledge
-        else if neighbours[1] == 1 && neighbours[6] == 1 && neighbours[4] == 1  && neighbours[7] == 1{ [5.,3.] } // right bottom ledge
-        else if neighbours[3] == 1 && neighbours[4] == 1 && neighbours[6] == 1  && neighbours[5] == 1{ [5.,4.] } // top left ledge
-        else if neighbours[3] == 1 && neighbours[4] == 1 && neighbours[1] == 1  && neighbours[0] == 1{ [6.,4.] } // top right ledge
-        else if neighbours[3] == 1 && neighbours[4] == 1 && neighbours[6] == 1  && neighbours[7] == 1{ [4.,5.] } // bottom left ledge
-        else if neighbours[3] == 1 && neighbours[4] == 1 && neighbours[1] == 1  && neighbours[2] == 1{ [5.,5.] } // bottom right ledge
-        else if neighbours[1] == 1 && neighbours[6] == 1 && neighbours[4] == 1 { [5.,1.] } // T
-        else if neighbours[1] == 1 && neighbours[6] == 1 && neighbours[3] == 1 { [6.,1.] } // upside down T
-        else if neighbours[1] == 1 && neighbours[4] == 1 && neighbours[3] == 1 { [6.,0.] } // side T
-        else if neighbours[6] == 1 && neighbours[4] == 1 && neighbours[3] == 1 { [5.,0.] } // side upside down T
-        else if neighbours[1] == 1 && neighbours[6] == 1 { [2.,0.] } // =
-        else if neighbours[1] == 0 && neighbours[4] == 1 && neighbours[6] == 1 && neighbours[7] == 1{ [0.,3.]} // solid L
-        else if neighbours[1] == 1 && neighbours[4] == 1 && neighbours[6] == 0 && neighbours[2] == 1{ [2.,3.]} // back solid L
-        else if neighbours[1] == 0 && neighbours[3] == 1 && neighbours[6] == 1 && neighbours[5] == 1{ [0.,1.]} // up down solid L
-        else if neighbours[1] == 1 && neighbours[3] == 1 && neighbours[6] == 0 && neighbours[0] == 1{ [2.,1.]} // back up down solid L
-        else if neighbours[1] == 1 && neighbours[4] == 1 && neighbours[6] == 0{ [4.,0.] } // backwards L
-        else if neighbours[1] == 0 && neighbours[4] == 1 && neighbours[6] == 1{  [0.,4.]} //  L
-        else if neighbours[1] == 0 && neighbours[3] == 1 && neighbours[6] == 1{  [1.,4.]} // up sown L
-        else if neighbours[1] == 1 && neighbours[3] == 1 && neighbours[6] == 0{ [4.,1.] } // up sown back L
-        else if neighbours[1] == 1{ [3.,0.] } // right cap
-        else if neighbours[6] == 1{ [1.,0.] } //left cap
-        else if neighbours[3] == 1 && neighbours[4] == 1 { [3.,2.] } // side =
-        else if neighbours[3] == 1{ [3.,1.] } // top cap
-        else if neighbours[4] == 1{ [3.,3.] } // bottom cap
-        else{[0.,0.]}
+
+        mask
     }
 
     pub fn mesh(&self,layer: usize) -> &Option<Handle<Mesh>>{
@@ -293,6 +262,264 @@ impl ChunkPosition{
     }
 }
 
+const LUT: [[f32; 2]; 256] = [
+    [0.0, 0.0],
+    [0.0, 0.0],
+    [3.0, 0.0],
+    [3.0, 0.0],
+    [0.0, 0.0],
+    [0.0, 0.0],
+    [3.0, 0.0],
+    [3.0, 0.0],
+    [3.0, 1.0],
+    [3.0, 1.0],
+    [4.0, 1.0],
+    [2.0, 1.0],
+    [3.0, 1.0],
+    [3.0, 1.0],
+    [4.0, 1.0],
+    [2.0, 1.0],
+    [3.0, 3.0],
+    [3.0, 3.0],
+    [4.0, 0.0],
+    [4.0, 0.0],
+    [3.0, 3.0],
+    [3.0, 3.0],
+    [2.0, 3.0],
+    [2.0, 3.0],
+    [3.0, 2.0],
+    [3.0, 2.0],
+    [6.0, 0.0],
+    [6.0, 4.0],
+    [3.0, 2.0],
+    [3.0, 2.0],
+    [5.0, 5.0],
+    [2.0, 2.0],
+    [0.0, 0.0],
+    [0.0, 0.0],
+    [3.0, 0.0],
+    [3.0, 0.0],
+    [0.0, 0.0],
+    [0.0, 0.0],
+    [3.0, 0.0],
+    [3.0, 0.0],
+    [3.0, 1.0],
+    [3.0, 1.0],
+    [4.0, 1.0],
+    [2.0, 1.0],
+    [3.0, 1.0],
+    [3.0, 1.0],
+    [4.0, 1.0],
+    [2.0, 1.0],
+    [3.0, 3.0],
+    [3.0, 3.0],
+    [4.0, 0.0],
+    [4.0, 0.0],
+    [3.0, 3.0],
+    [3.0, 3.0],
+    [2.0, 3.0],
+    [2.0, 3.0],
+    [3.0, 2.0],
+    [3.0, 2.0],
+    [6.0, 0.0],
+    [6.0, 4.0],
+    [3.0, 2.0],
+    [3.0, 2.0],
+    [5.0, 5.0],
+    [2.0, 2.0],
+    [1.0, 0.0],
+    [1.0, 0.0],
+    [2.0, 0.0],
+    [2.0, 0.0],
+    [1.0, 0.0],
+    [1.0, 0.0],
+    [2.0, 0.0],
+    [2.0, 0.0],
+    [1.0, 4.0],
+    [1.0, 4.0],
+    [6.0, 1.0],
+    [6.0, 2.0],
+    [1.0, 4.0],
+    [1.0, 4.0],
+    [6.0, 1.0],
+    [6.0, 2.0],
+    [0.0, 4.0],
+    [0.0, 4.0],
+    [5.0, 1.0],
+    [5.0, 1.0],
+    [0.0, 4.0],
+    [0.0, 4.0],
+    [6.0, 3.0],
+    [6.0, 3.0],
+    [5.0, 0.0],
+    [5.0, 0.0],
+    [4.0, 4.0],
+    [1.0, 5.0],
+    [5.0, 0.0],
+    [5.0, 0.0],
+    [1.0, 6.0],
+    [0.0, 5.0],
+    [1.0, 0.0],
+    [1.0, 0.0],
+    [2.0, 0.0],
+    [2.0, 0.0],
+    [1.0, 0.0],
+    [1.0, 0.0],
+    [2.0, 0.0],
+    [2.0, 0.0],
+    [0.0, 1.0],
+    [0.0, 1.0],
+    [5.0, 2.0],
+    [1.0, 1.0],
+    [0.0, 1.0],
+    [0.0, 1.0],
+    [5.0, 2.0],
+    [1.0, 1.0],
+    [0.0, 4.0],
+    [0.0, 4.0],
+    [5.0, 1.0],
+    [5.0, 1.0],
+    [0.0, 4.0],
+    [0.0, 4.0],
+    [6.0, 3.0],
+    [6.0, 3.0],
+    [5.0, 4.0],
+    [5.0, 4.0],
+    [3.0, 6.0],
+    [2.0, 5.0],
+    [5.0, 4.0],
+    [5.0, 4.0],
+    [4.0, 6.0],
+    [2.0, 4.0],
+    [0.0, 0.0],
+    [0.0, 0.0],
+    [3.0, 0.0],
+    [3.0, 0.0],
+    [0.0, 0.0],
+    [0.0, 0.0],
+    [3.0, 0.0],
+    [3.0, 0.0],
+    [3.0, 1.0],
+    [3.0, 1.0],
+    [4.0, 1.0],
+    [2.0, 1.0],
+    [3.0, 1.0],
+    [3.0, 1.0],
+    [4.0, 1.0],
+    [2.0, 1.0],
+    [3.0, 3.0],
+    [3.0, 3.0],
+    [4.0, 0.0],
+    [4.0, 0.0],
+    [3.0, 3.0],
+    [3.0, 3.0],
+    [2.0, 3.0],
+    [2.0, 3.0],
+    [3.0, 2.0],
+    [3.0, 2.0],
+    [6.0, 0.0],
+    [6.0, 4.0],
+    [3.0, 2.0],
+    [3.0, 2.0],
+    [5.0, 5.0],
+    [2.0, 2.0],
+    [0.0, 0.0],
+    [0.0, 0.0],
+    [3.0, 0.0],
+    [3.0, 0.0],
+    [0.0, 0.0],
+    [0.0, 0.0],
+    [3.0, 0.0],
+    [3.0, 0.0],
+    [3.0, 1.0],
+    [3.0, 1.0],
+    [4.0, 1.0],
+    [2.0, 1.0],
+    [3.0, 1.0],
+    [3.0, 1.0],
+    [4.0, 1.0],
+    [2.0, 1.0],
+    [3.0, 3.0],
+    [3.0, 3.0],
+    [4.0, 0.0],
+    [4.0, 0.0],
+    [3.0, 3.0],
+    [3.0, 3.0],
+    [2.0, 3.0],
+    [2.0, 3.0],
+    [3.0, 2.0],
+    [3.0, 2.0],
+    [6.0, 0.0],
+    [6.0, 4.0],
+    [3.0, 2.0],
+    [3.0, 2.0],
+    [5.0, 5.0],
+    [2.0, 2.0],
+    [1.0, 0.0],
+    [1.0, 0.0],
+    [2.0, 0.0],
+    [2.0, 0.0],
+    [1.0, 0.0],
+    [1.0, 0.0],
+    [2.0, 0.0],
+    [2.0, 0.0],
+    [1.0, 4.0],
+    [1.0, 4.0],
+    [6.0, 1.0],
+    [6.0, 2.0],
+    [1.0, 4.0],
+    [1.0, 4.0],
+    [6.0, 1.0],
+    [6.0, 2.0],
+    [0.0, 3.0],
+    [0.0, 3.0],
+    [5.0, 3.0],
+    [5.0, 3.0],
+    [0.0, 3.0],
+    [0.0, 3.0],
+    [1.0, 3.0],
+    [1.0, 3.0],
+    [4.0, 5.0],
+    [4.0, 5.0],
+    [3.0, 5.0],
+    [5.0, 6.0],
+    [4.0, 5.0],
+    [4.0, 5.0],
+    [0.0, 6.0],
+    [3.0, 4.0],
+    [1.0, 0.0],
+    [1.0, 0.0],
+    [2.0, 0.0],
+    [2.0, 0.0],
+    [1.0, 0.0],
+    [1.0, 0.0],
+    [2.0, 0.0],
+    [2.0, 0.0],
+    [0.0, 1.0],
+    [0.0, 1.0],
+    [5.0, 2.0],
+    [1.0, 1.0],
+    [0.0, 1.0],
+    [0.0, 1.0],
+    [5.0, 2.0],
+    [1.0, 1.0],
+    [0.0, 3.0],
+    [0.0, 3.0],
+    [5.0, 3.0],
+    [5.0, 3.0],
+    [0.0, 3.0],
+    [0.0, 3.0],
+    [1.0, 3.0],
+    [1.0, 3.0],
+    [0.0, 2.0],
+    [0.0, 2.0],
+    [2.0, 6.0],
+    [4.0, 3.0],
+    [0.0, 2.0],
+    [0.0, 2.0],
+    [4.0, 2.0],
+    [1.0, 2.0],
+];
 
 
 

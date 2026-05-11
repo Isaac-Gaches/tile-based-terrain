@@ -36,9 +36,8 @@ impl Renderer{
         }
     }
 
-    pub fn update(&mut self,tiles: Vec<u8>,input_manager: &InputManager,player_pos: [f32;2]){
-        self.camera.update(player_pos,input_manager,&mut self.egpu);
-        self.lighting_engine.update(&mut self.egpu,tiles,player_pos);
+    pub fn update(&mut self,input_manager: &InputManager,player_pos: [f32;2],dt:f32){
+        self.camera.update(player_pos,input_manager,&mut self.egpu,dt);
     }
 }
 

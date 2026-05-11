@@ -10,9 +10,8 @@ fn smooth_horizontal(@builtin(global_invocation_id) gid : vec3<u32>){
         return;
     }
     var sum = vec4<f32>(0.0);
-    var radius = 1;
 
-    for (var i = -radius; i <= radius; i += 1) {
+    for (var i = -1; i <= 1; i += 1) {
         var x = i32(gid.x) + i;
         x = clamp(x, 0, i32(size.x) - 1);
 
@@ -21,7 +20,7 @@ fn smooth_horizontal(@builtin(global_invocation_id) gid : vec3<u32>){
         sum += pixel;
     }
 
-    sum /= f32(radius * 2 + 1);
+    sum /= 3.;
     let current_pixel = textureLoad(inputTex, vec2<i32>(i32(gid.x),i32(gid.y)), 0);
     let new_pixel = vec4<f32>(max(sum.r,current_pixel.r),max(sum.g,current_pixel.g),max(sum.b,current_pixel.b),1.);
 
@@ -37,9 +36,8 @@ fn smooth_vertical(@builtin(global_invocation_id) gid : vec3<u32>){
     }
 
     var sum = vec4<f32>(0.0);
-    var radius = 1;
 
-    for (var i = -radius; i <= radius; i += 1) {
+    for (var i = -1; i <= 1; i += 1) {
         var y = i32(gid.y) + i;
         y = clamp(y, 0, i32(size.y) - 1);
 
@@ -48,7 +46,7 @@ fn smooth_vertical(@builtin(global_invocation_id) gid : vec3<u32>){
         sum += pixel;
     }
 
-    sum /= f32(radius * 2 + 1);
+    sum /= 3.;
     let current_pixel = textureLoad(inputTex, vec2<i32>(i32(gid.x),i32(gid.y)), 0);
     let new_pixel = vec4<f32>(max(sum.r,current_pixel.r),max(sum.g,current_pixel.g),max(sum.b,current_pixel.b),1.);
 

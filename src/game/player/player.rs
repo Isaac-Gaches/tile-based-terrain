@@ -10,36 +10,36 @@ pub struct Player{
 impl Player{
     pub fn new() -> Self{
         Self{
-            acceleration: 0.2,
-            speed: 0.2,
-            jump_speed: 0.6,
+            acceleration: 20.0,
+            speed: 15.0,
+            jump_speed: 20.0,
         }
     }
-    pub fn update(&self,input: &InputManager,collider:&mut Collider){
+    pub fn update(&self,input: &InputManager,collider:&mut Collider,dt: f32){
         if input.up && collider.on_ground{
             collider.y_vel = self.jump_speed;
         }
 
         if input.left {
-            collider.x_vel -= self.acceleration;
-            if collider.x_vel > 0. {collider.x_vel -= self.acceleration} // if changing diretion, change faster to feel more responsive
+            collider.x_vel -= self.acceleration * dt;
+            if collider.x_vel > 0. {collider.x_vel -= self.acceleration * dt} // if changing diretion, change faster to feel more responsive
             if collider.x_vel < -self.speed { collider.x_vel = -self.speed; }
 
         }
 
         if input.right {
-            collider.x_vel += self.acceleration;
-            if collider.x_vel < 0. {collider.x_vel += self.acceleration}  // if changing diretion, change faster to feel more responsive
+            collider.x_vel += self.acceleration * dt;
+            if collider.x_vel < 0. {collider.x_vel += self.acceleration * dt}  // if changing diretion, change faster to feel more responsive
             if collider.x_vel > self.speed { collider.x_vel = self.speed; }
         }
 
         if !input.right && !input.left{ // slow down if no input
             if collider.x_vel > 0.{
-                collider.x_vel -= self.acceleration*2.;//slow fast
+                collider.x_vel -= self.acceleration*2. * dt;//slow fast
                 if collider.x_vel < 0.{ collider.x_vel = 0.; }
             }
             else if collider.x_vel < 0.{
-                collider.x_vel += self.acceleration*2.;
+                collider.x_vel += self.acceleration*2. * dt;
                 if collider.x_vel > 0.{ collider.x_vel = 0.; }
             }
         }

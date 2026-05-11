@@ -33,6 +33,9 @@ fn set_lit_tiles(@builtin(global_invocation_id) gid : vec3<u32>){
 @compute @workgroup_size(16,16)
 fn diffuse_horizontal(@builtin(global_invocation_id) gid : vec3<u32>){
     let size = textureDimensions(inputTex);
+    if (gid.x >= size.x || gid.y >= size.y) {
+        return;
+    }
 
     let tile = textureLoad(tiles,vec2<u32>(gid.x,size.y-gid.y),0).r;
     let current = textureLoad(inputTex, vec2<u32>(gid.x,gid.y), 0);
@@ -59,6 +62,9 @@ fn diffuse_horizontal(@builtin(global_invocation_id) gid : vec3<u32>){
 @compute @workgroup_size(16,16)
 fn diffuse_vertical(@builtin(global_invocation_id) gid : vec3<u32>){
     let size = textureDimensions(inputTex);
+    if (gid.x >= size.x || gid.y >= size.y) {
+        return;
+    }
 
     let tile = textureLoad(tiles,vec2<u32>(gid.x,size.y-gid.y),0).r;
     let current = textureLoad(inputTex, vec2<u32>(gid.x,gid.y), 0);

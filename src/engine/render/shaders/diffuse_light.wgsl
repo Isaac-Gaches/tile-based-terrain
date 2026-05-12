@@ -1,7 +1,7 @@
 @group(0) @binding(0)
 var inputTex: texture_2d<f32>;
 @group(0) @binding(1)
-var outputTex: texture_storage_2d<rgba8unorm, write>;
+var outputTex: texture_storage_2d<rgba16float, write>;
 
 @group(0) @binding(2)
 var tiles: texture_2d<u32>;
@@ -17,7 +17,7 @@ fn set_lit_tiles(@builtin(global_invocation_id) gid : vec3<u32>){
         return;
     }
     else if tile == 4{
-        textureStore(outputTex, vec2<i32>(i32(gid.x), i32(gid.y)), vec4<f32>(1.,0.6,0.5,1.));
+        textureStore(outputTex, vec2<i32>(i32(gid.x), i32(gid.y)), vec4<f32>(1.0,0.4,0.3,1.));
         return;
     }
     else if tile == 6{
@@ -46,7 +46,7 @@ fn diffuse_horizontal(@builtin(global_invocation_id) gid : vec3<u32>){
     }
 
     var mx = vec3<f32>(0.);
-    let decay = 0.82;
+    let decay = 0.84;
 
     let left_pixel = textureLoad(inputTex, vec2<u32>(clamp(gid.x- 1,0,size.x- 1),gid.y), 0).rgb * decay;
     mx = max(left_pixel,mx);
@@ -74,7 +74,7 @@ fn diffuse_vertical(@builtin(global_invocation_id) gid : vec3<u32>){
         return;
     }
 
-    let decay = 0.82;
+    let decay = 0.84;
     var mx = vec3<f32>(0.);
 
     let up_pixel = textureLoad(inputTex, vec2<u32>(gid.x,clamp(gid.y+ 1,0,size.y- 1)), 0).rgb * decay;

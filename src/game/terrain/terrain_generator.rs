@@ -12,7 +12,7 @@ impl TerrainGenerator{
             seed: 0,
         }
     }
-    pub fn chunk_tiles(&mut self, position: &ChunkPosition) -> Vec<Vec<Tile>>{
+    pub fn chunk_tiles(&self, position: &ChunkPosition) -> Vec<Vec<Tile>>{
         let mut tiles = vec![vec![],vec![]];
 
         let big_noise = Fbm::<OpenSimplex>::new(self.seed)

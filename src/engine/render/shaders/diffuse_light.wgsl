@@ -17,7 +17,7 @@ fn set_lit_tiles(@builtin(global_invocation_id) gid : vec3<u32>){
         return;
     }
     else if tile == 4{
-        textureStore(outputTex, vec2<i32>(i32(gid.x), i32(gid.y)), vec4<f32>(1.,0.9,0.8,1.));
+        textureStore(outputTex, vec2<i32>(i32(gid.x), i32(gid.y)), vec4<f32>(1.,0.6,0.5,1.));
         return;
     }
     else if tile == 6{

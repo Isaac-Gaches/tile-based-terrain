@@ -41,7 +41,7 @@ pub struct ChunkData {
 }
 
 impl ChunkData {
-    pub fn new(position: &ChunkPosition,generator: &mut TerrainGenerator) -> Self{
+    pub fn new(position: &ChunkPosition,generator: &TerrainGenerator) -> Self{
         let tiles = generator.chunk_tiles(position);
 
         Self{
@@ -53,7 +53,6 @@ impl ChunkData {
 pub struct Chunk{
     data: ChunkData,
     meshes: Vec<Option<Handle<Mesh>>>,
-    materials: Vec<Option<Handle<Material>>>,
     pub dirty: Vec<bool>,
     pub save: bool,
 }
@@ -63,7 +62,6 @@ impl Chunk{
         Self{
             data,
             meshes: vec![None,None],
-            materials: vec![None,None],
             dirty: vec![true, true],
             save: false,
         }
@@ -76,10 +74,7 @@ impl Chunk{
     pub fn set_tile(&mut self, x: usize, y: usize,id:u8, layer: usize){
         self.data.tiles[layer][x * CHUNK_SIZE + y].id = id;
         self.dirty[layer] = true;
-
-        if !self.save{
-            self.save = true;
-        }
+        self.save = true;
     }
 
     pub fn remove_mark(&mut self){
@@ -116,8 +111,10 @@ impl Chunk{
     }
 
     pub fn build_mesh(&self,layer: usize, position: &ChunkPosition,borders: ChunkBorders) -> Option<(Vec<Vertex>,Vec<u16>)>{
-        let mut vertices = vec![];
-        let mut indices = vec![];
+        const EXPECTED_QUADS: usize = CHUNK_SIZE*CHUNK_SIZE;
+
+        let mut vertices = Vec::with_capacity(EXPECTED_QUADS *4);
+        let mut indices = Vec::with_capacity(EXPECTED_QUADS*6);
 
         let mut sides: u16 = 0;
 
@@ -173,7 +170,6 @@ impl Chunk{
 
     pub fn set_mesh(&mut self,layer: usize,mesh: Handle<Mesh>){
         self.meshes[layer] = Some(mesh);
-        self.dirty[layer] = false;
     }
 
     fn tile_neighbours(&self,x: i32, y: i32, layer: usize, borders: &ChunkBorders) -> Vec<u8>{

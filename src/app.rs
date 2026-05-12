@@ -65,6 +65,7 @@ impl ApplicationHandler for App{
                 self.input_manager.update_mouse_world_pos(&renderer.camera);
             }
             WindowEvent::CloseRequested => {
+                self.game.chunk_manager.save_chunks(&self.file_manager);
                 event_loop.exit();
             }
 

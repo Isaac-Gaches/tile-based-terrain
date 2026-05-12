@@ -1,8 +1,12 @@
 use winit::error::EventLoopError;
 use winit::event_loop::EventLoop;
 use crate::app::App;
-mod app;
+use mimalloc::MiMalloc;
 
+#[global_allocator]
+static GLOBAL: MiMalloc = MiMalloc;
+
+mod app;
 mod game;
 mod engine;
 

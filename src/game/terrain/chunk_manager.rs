@@ -3,6 +3,7 @@ use std::sync::{Arc, Mutex};
 use easy_gpu::assets::Material;
 use easy_gpu::assets_manager::Handle;
 use easy_gpu::frame::Frame;
+use rayon::iter::ParallelDrainRange;
 use rayon::prelude::{IntoParallelRefIterator, ParallelIterator};
 use crate::engine::file_manager::FileManager;
 use crate::engine::input_manager::InputManager;
@@ -13,7 +14,7 @@ use crate::game::terrain::tile::Tile;
 pub struct ChunkManager{
     pub dirty: bool,
     chunks: HashMap<ChunkPosition,Chunk>,
-    data_load_queue: HashSet<ChunkPosition>,
+    data_load_queue: Vec<ChunkPosition>,
     mesh_load_queue: Vec<ChunkPosition>,
     mesh_materials: Vec<Handle<Material>>
 }
@@ -24,7 +25,7 @@ impl ChunkManager{
         Self{
             dirty: false,
             chunks: HashMap::new(),
-            data_load_queue: HashSet::new(),
+            data_load_queue: Vec::new(),
             mesh_load_queue: Vec::new(),
             mesh_materials: vec![],
         }
@@ -50,7 +51,6 @@ impl ChunkManager{
     }
 
     pub fn update_data_queue(&mut self, player_pos: [f32;2]){
-        self.data_load_queue.clear();
         for x in -(CHUNK_LOAD_DISTANCE+1)..=(CHUNK_LOAD_DISTANCE+1) {
             for y in -(CHUNK_LOAD_DISTANCE+1)..=(CHUNK_LOAD_DISTANCE+1) {
                 let chunk_pos = ChunkPosition::new(
@@ -59,7 +59,7 @@ impl ChunkManager{
                 );
 
                 if !self.chunks.contains_key(&chunk_pos){
-                    self.data_load_queue.insert(chunk_pos);
+                    self.data_load_queue.push(chunk_pos);
                 }
             }
         }
@@ -85,22 +85,21 @@ impl ChunkManager{
     pub fn load_chunks_data(
         &mut self,
         file_manager: &Arc<FileManager>,
-        terrain_generator: &Arc<Mutex<TerrainGenerator>>,
+        terrain_generator: &Arc<TerrainGenerator>,
     ) {
         let loaded_chunks: Vec<(ChunkPosition, Chunk)> = self
             .data_load_queue
-            .par_iter()
+            .par_drain(..)
             .map(|chunk_pos| {
-                let chunk_data = if let Some(chunk_data) = file_manager.load_chunk(chunk_pos) {
+                let chunk_data = if let Some(chunk_data) = file_manager.load_chunk(&chunk_pos) {
                     chunk_data
                 } else {
-                    let mut generator = terrain_generator.lock().unwrap();
-                    ChunkData::new(chunk_pos, &mut *generator)
+                    ChunkData::new(&chunk_pos, terrain_generator)
                 };
 
                 let chunk = Chunk::new(chunk_data);
 
-                (chunk_pos.clone(), chunk)
+                (chunk_pos, chunk)
             })
             .collect();
 
@@ -115,7 +114,7 @@ impl ChunkManager{
         }
         let jobs: Vec<_> = self
             .mesh_load_queue
-            .drain(..self.mesh_load_queue.len().min(2))
+            .drain(..self.mesh_load_queue.len().min(4))
             .flat_map(|chunk_pos| {
                 let chunk = self.chunks.get_mut(&chunk_pos).expect("chunk doesn't exist");
                 let mut dirty_layers = Vec::new();
@@ -185,14 +184,9 @@ impl ChunkManager{
     }
 
     pub fn save_chunks(&self, file_manager: &Arc<FileManager>) {
-        self.mesh_load_queue
+        self.chunks
             .par_iter()
-            .for_each(|chunk_pos| {
-                let chunk = self
-                    .chunks
-                    .get(chunk_pos)
-                    .expect("chunk doesn't exist");
-
+            .for_each(|(chunk_pos,chunk)| {
                 if chunk.save {
                     if let Err(error) =
                         file_manager.save_chunk(chunk.data(), chunk_pos)
@@ -314,7 +308,7 @@ impl ChunkManager{
         let y = (input.mouse_world_pos[1]+0.5-16.).floor() as i32;
 
         if input.right_mouse{
-            self.set_tile(x,y,0,1);
+            self.set_tile(x,y,9,1);
         }
         else if input.left_mouse{
             self.set_tile(x,y,4,1);

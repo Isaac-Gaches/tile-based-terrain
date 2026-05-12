@@ -43,7 +43,7 @@ impl LightingEngine{
                 height: CHUNK_LOAD_DISTANCE as u32*CHUNK_SIZE as u32*2 + CHUNK_SIZE as u32,
                 depth_or_array_layers: 1,
             })
-            .format(Rgba16Float)
+            .format(Rgba8Unorm)
             .usage(TextureUsages::STORAGE_BINDING | TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_SRC | TextureUsages::COPY_DST | TextureUsages::RENDER_ATTACHMENT);
 
         let diffuse_texture_a = diffuse_texture_builder.build(egpu);
@@ -60,7 +60,7 @@ impl LightingEngine{
                 height: CHUNK_LOAD_DISTANCE as u32*CHUNK_SIZE as u32*4 + CHUNK_SIZE as u32 * 2,
                 depth_or_array_layers: 1,
             })
-            .format(Rgba16Float);
+            .format(Rgba8Unorm);
 
         let smooth_texture_a = smooth_texture_builder.build(egpu);
         let smooth_texture_b = smooth_texture_builder.build(egpu);
@@ -83,7 +83,7 @@ impl LightingEngine{
         let diffuse_horizontal_builder = ComputePipelineBuilder::new(diffuse_shader)
             .bind_group_layout(&[
                 compute_texture_float(0),
-                storage_texture(1,Rgba16Float),
+                storage_texture(1,Rgba8Unorm),
                 compute_texture_uint(2)
             ])
             .entry_point("diffuse_horizontal");
@@ -116,7 +116,7 @@ impl LightingEngine{
         let smooth_pipeline_builder = ComputePipelineBuilder::new(smooth_shader)
             .bind_group_layout(&[
                 compute_texture_float(0),
-                storage_texture(1,TextureFormat::Rgba16Float)
+                storage_texture(1,TextureFormat::Rgba8Unorm)
             ])
             .entry_point("smooth_vertical");
 
@@ -140,7 +140,7 @@ impl LightingEngine{
         let upscale_pipeline = ComputePipelineBuilder::new(upscale_shader)
             .bind_group_layout(&[
                 compute_texture_float(0),
-                storage_texture(1,TextureFormat::Rgba16Float),
+                storage_texture(1,TextureFormat::Rgba8Unorm),
             ])
             .entry_point("upscale_lightmap")
             .build(egpu);
@@ -232,7 +232,7 @@ impl LightingEngine{
             self.occlusion_pipeline,
             dispatch
         );
-        for _ in 0..30{
+        for _ in 0..20{
             frame.compute(
                 self.diffuse_bg_a_to_b,
                 self.diffuse_horizontal_pipeline,

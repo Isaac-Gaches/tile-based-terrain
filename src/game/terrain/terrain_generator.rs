@@ -1,4 +1,4 @@
-use noise::{Fbm, MultiFractal, NoiseFn, OpenSimplex};
+use fast_noise_lite_rs::{FastNoiseLite, FractalType, NoiseType};
 use crate::game::terrain::chunk::{CHUNK_SIZE, ChunkPosition};
 use crate::game::terrain::tile::Tile;
 
@@ -15,33 +15,39 @@ impl TerrainGenerator{
     pub fn chunk_tiles(&self, position: &ChunkPosition) -> Vec<Vec<Tile>>{
         let mut tiles = vec![vec![],vec![]];
 
-        let big_noise = Fbm::<OpenSimplex>::new(self.seed)
-            .set_frequency(0.012)
-            .set_octaves(4)
-            .set_persistence(0.5)
-            .set_lacunarity(2.0);
+        let mut big_noise = FastNoiseLite::new(self.seed as i32);
+        big_noise.set_noise_type(NoiseType::OpenSimplex2);
+        big_noise.set_frequency(0.012);
+        big_noise.set_fractal_type((FractalType::FBm));
+        big_noise.set_fractal_octaves((4));
+        big_noise.set_fractal_gain((0.5));
+        big_noise.set_fractal_lacunarity((2.0));
 
-        let med_noise = Fbm::<OpenSimplex>::new(self.seed)
-            .set_frequency(0.025)
-            .set_octaves(4)
-            .set_persistence(0.5)
-            .set_lacunarity(2.2);
+        let mut med_noise = FastNoiseLite::new(self.seed as i32);
+        med_noise.set_noise_type((NoiseType::OpenSimplex2));
+        med_noise.set_frequency((0.025));
+        med_noise.set_fractal_type((FractalType::FBm));
+        med_noise.set_fractal_octaves((4));
+        med_noise.set_fractal_gain((0.5));
+        med_noise.set_fractal_lacunarity((2.2));
 
-        let small_noise = Fbm::<OpenSimplex>::new(self.seed)
-            .set_frequency(0.05)
-            .set_octaves(3)
-            .set_persistence(0.5)
-            .set_lacunarity(2.2);
+        let mut small_noise = FastNoiseLite::new(self.seed as i32);
+        small_noise.set_noise_type((NoiseType::OpenSimplex2));
+        small_noise.set_frequency((0.05));
+        small_noise.set_fractal_type((FractalType::FBm));
+        small_noise.set_fractal_octaves((3));
+        small_noise.set_fractal_gain((0.5));
+        small_noise.set_fractal_lacunarity((2.2));
 
         for x in 0..CHUNK_SIZE {
             for y in 0..CHUNK_SIZE {
                 let tile_pos = [position.x * CHUNK_SIZE as i32 + x as i32,position.y * CHUNK_SIZE as i32 +y as i32];
 
-                let height = (big_noise.get([tile_pos[0] as f64,0.]) *80.) as i32;
-                let dirt_level = (height - 100 + (small_noise.get([tile_pos[0] as f64,tile_pos[1] as f64]) *200.) as i32).min(height);
-                let cave_system = big_noise.get([tile_pos[0] as f64,tile_pos[1] as f64]);
-                let cave = med_noise.get([tile_pos[0] as f64,tile_pos[1] as f64]);
-                let ore = small_noise.get([tile_pos[1] as f64,tile_pos[0] as f64]);
+                let height = (big_noise.get_noise_2d(tile_pos[0] as f32,0.) * 80.) as i32;
+                let dirt_level = (height - 100 + (small_noise.get_noise_2d(tile_pos[0] as f32,tile_pos[1] as f32) *200.) as i32).min(height);
+                let cave_system = big_noise.get_noise_2d(tile_pos[0] as f32, tile_pos[1] as f32);
+                let cave = med_noise.get_noise_2d(tile_pos[0] as f32, tile_pos[1] as f32);
+                let ore = small_noise.get_noise_2d(tile_pos[1] as f32,tile_pos[0] as f32);
 
                 if tile_pos[1] > height {
                     tiles[1].push(Tile::new(0));

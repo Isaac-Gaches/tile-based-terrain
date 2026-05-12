@@ -87,6 +87,9 @@ impl ChunkManager{
         file_manager: &Arc<FileManager>,
         terrain_generator: &Arc<TerrainGenerator>,
     ) {
+        if self.data_load_queue.len() == 0{
+            return;
+        }
         let loaded_chunks: Vec<(ChunkPosition, Chunk)> = self
             .data_load_queue
             .par_drain(..)
@@ -114,7 +117,7 @@ impl ChunkManager{
         }
         let jobs: Vec<_> = self
             .mesh_load_queue
-            .drain(..self.mesh_load_queue.len().min(4))
+            .drain(..self.mesh_load_queue.len().min(2))
             .flat_map(|chunk_pos| {
                 let chunk = self.chunks.get_mut(&chunk_pos).expect("chunk doesn't exist");
                 let mut dirty_layers = Vec::new();
@@ -129,9 +132,8 @@ impl ChunkManager{
             })
             .collect();
 
-
         let generated_meshes: Vec<_> = jobs
-            .par_iter()
+            .iter()
             .map(|(chunk_pos, layer)| {
                 let borders = self.chunk_borders(chunk_pos, *layer);
                 let chunk = self.chunks.get(chunk_pos).expect("chunk doesn't exist");

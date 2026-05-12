@@ -1,7 +1,7 @@
 @group(0) @binding(0)
 var inputTex: texture_2d<f32>;
 @group(0) @binding(1)
-var outputTex: texture_storage_2d<rgba16float, write>;
+var outputTex: texture_storage_2d<rgba8unorm, write>;
 
 @compute @workgroup_size(16,16)
 fn smooth_horizontal(@builtin(global_invocation_id) gid : vec3<u32>){

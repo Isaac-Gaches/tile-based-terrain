@@ -1,7 +1,7 @@
 @group(0) @binding(0)
 var inputTex: texture_2d<f32>;
 @group(0) @binding(1)
-var outputTex: texture_storage_2d<rgba16float, write>;
+var outputTex: texture_storage_2d<rgba8unorm, write>;
 
 @group(0) @binding(2)
 var tiles: texture_2d<u32>;

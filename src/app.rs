@@ -16,6 +16,7 @@ pub struct App{
     input_manager: InputManager,
     game: Game,
     last_update_time: Instant,
+    light_update_timer: Instant,
 }
 
 impl App{
@@ -27,6 +28,7 @@ impl App{
             input_manager: Default::default(),
             game: Game::new(),
             last_update_time: Instant::now(),
+            light_update_timer: Instant::now(),
         }
     }
 }
@@ -37,12 +39,14 @@ impl ApplicationHandler for App{
             .create_window(Window::default_attributes())
             .expect("Failed to create window"));
 
-        let renderer = Renderer::new(window.clone());
+        let mut renderer = Renderer::new(window.clone());
 
         self.game.chunk_manager.set_mesh_materials(vec![
             renderer.mesh_engine.bg_mesh_material.clone(),
             renderer.mesh_engine.fg_mesh_material.clone()
         ]);
+
+        self.game.init_terrain(&mut renderer.egpu,&self.file_manager);
 
         self.game.spawn_player();
 
@@ -81,17 +85,19 @@ impl ApplicationHandler for App{
 
                 renderer.update(&self.input_manager, self.game.player_position,dt);
 
-                if self.game.chunk_manager.dirty{
+                if self.game.chunk_manager.dirty || self.light_update_timer.elapsed().as_secs_f32() > 5.{
                     renderer.lighting_engine.update(&mut renderer.egpu, self.game.extract_tiles(), self.game.player_position);
                 }
 
                 let frame = renderer.egpu.begin_frame();
 
-                if self.game.chunk_manager.dirty{
+                if self.game.chunk_manager.dirty || self.light_update_timer.elapsed().as_secs_f32() > 5.{
                     renderer.lighting_engine.compute(frame);
                     self.game.chunk_manager.dirty = false;
+                    self.light_update_timer = Instant::now();
                 }
 
+                renderer.sky.draw(frame);
                 self.game.draw(frame);
 
                 frame.sort_by_material();

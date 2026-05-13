@@ -1,9 +1,10 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
+use std::time::Instant;
 use easy_gpu::assets::Material;
 use easy_gpu::assets_manager::Handle;
 use easy_gpu::frame::Frame;
-use rayon::iter::ParallelDrainRange;
+use rayon::iter::{ParallelDrainFull, ParallelDrainRange};
 use rayon::prelude::{IntoParallelRefIterator, ParallelIterator};
 use crate::engine::file_manager::FileManager;
 use crate::engine::input_manager::InputManager;
@@ -14,8 +15,8 @@ use crate::game::terrain::tile::Tile;
 pub struct ChunkManager{
     pub dirty: bool,
     chunks: HashMap<ChunkPosition,Chunk>,
-    data_load_queue: Vec<ChunkPosition>,
-    mesh_load_queue: Vec<ChunkPosition>,
+    data_load_queue: HashSet<ChunkPosition>,
+    mesh_load_queue: HashSet<ChunkPosition>,
     mesh_materials: Vec<Handle<Material>>
 }
 pub const CHUNK_LOAD_DISTANCE: i32 = 3;
@@ -25,8 +26,8 @@ impl ChunkManager{
         Self{
             dirty: false,
             chunks: HashMap::new(),
-            data_load_queue: Vec::new(),
-            mesh_load_queue: Vec::new(),
+            data_load_queue: HashSet::new(),
+            mesh_load_queue: HashSet::new(),
             mesh_materials: vec![],
         }
     }
@@ -51,15 +52,19 @@ impl ChunkManager{
     }
 
     pub fn update_data_queue(&mut self, player_pos: [f32;2]){
+        let player_chunk = ChunkPosition::new(
+            player_pos[0].div_euclid(CHUNK_SIZE as f32) as i32,
+            player_pos[1].div_euclid(CHUNK_SIZE as f32) as i32
+        );
         for x in -(CHUNK_LOAD_DISTANCE+1)..=(CHUNK_LOAD_DISTANCE+1) {
             for y in -(CHUNK_LOAD_DISTANCE+1)..=(CHUNK_LOAD_DISTANCE+1) {
                 let chunk_pos = ChunkPosition::new(
-                    player_pos[0].div_euclid(CHUNK_SIZE as f32) as i32 + x,
-                    player_pos[1].div_euclid(CHUNK_SIZE as f32) as i32 + y
+                    player_chunk.x + x,
+                    player_chunk.y + y
                 );
 
                 if !self.chunks.contains_key(&chunk_pos){
-                    self.data_load_queue.push(chunk_pos);
+                    self.data_load_queue.insert(chunk_pos);
                 }
             }
         }
@@ -76,7 +81,7 @@ impl ChunkManager{
                 }
             }
             else if chunk.dirty(){
-                self.mesh_load_queue.push(chunk_pos.clone());
+                self.mesh_load_queue.insert(chunk_pos.clone());
                 self.dirty = true;
             }
         }
@@ -92,7 +97,7 @@ impl ChunkManager{
         }
         let loaded_chunks: Vec<(ChunkPosition, Chunk)> = self
             .data_load_queue
-            .par_drain(..)
+            .par_drain()
             .map(|chunk_pos| {
                 let chunk_data = if let Some(chunk_data) = file_manager.load_chunk(&chunk_pos) {
                     chunk_data
@@ -117,7 +122,7 @@ impl ChunkManager{
         }
         let jobs: Vec<_> = self
             .mesh_load_queue
-            .drain(..self.mesh_load_queue.len().min(2))
+            .drain()
             .flat_map(|chunk_pos| {
                 let chunk = self.chunks.get_mut(&chunk_pos).expect("chunk doesn't exist");
                 let mut dirty_layers = Vec::new();
@@ -133,7 +138,7 @@ impl ChunkManager{
             .collect();
 
         let generated_meshes: Vec<_> = jobs
-            .iter()
+            .par_iter()
             .map(|(chunk_pos, layer)| {
                 let borders = self.chunk_borders(chunk_pos, *layer);
                 let chunk = self.chunks.get(chunk_pos).expect("chunk doesn't exist");
@@ -153,29 +158,41 @@ impl ChunkManager{
     }
     
     pub fn chunk_borders(&self,chunk_pos: &ChunkPosition, layer: usize) -> ChunkBorders{
-        let mut top = Vec::new();
-        for x in -1..CHUNK_SIZE as i32+1{
-            let tiles = self.get_tile(chunk_pos.x * CHUNK_SIZE as i32 + x , chunk_pos.y * CHUNK_SIZE as i32 + CHUNK_SIZE as i32,layer).unwrap().solid();
-            top.push(tiles);
-        }
+        let mut top = [true;CHUNK_SIZE+2];
+        top.iter_mut().zip((-1..CHUNK_SIZE as i32+1).into_iter()).for_each(|(i,x)| {
+            *i = self.get_tile(
+                chunk_pos.x * CHUNK_SIZE as i32 + x,
+                chunk_pos.y * CHUNK_SIZE as i32 + CHUNK_SIZE as i32,
+                layer
+            ).unwrap().solid();
+        });
 
-        let mut right = Vec::new();
-        for y in 0..CHUNK_SIZE as i32{
-            let tiles = self.get_tile(chunk_pos.x * CHUNK_SIZE as i32+ CHUNK_SIZE as i32, chunk_pos.y * CHUNK_SIZE as i32 + y,layer).unwrap().solid();
-            right.push(tiles);
-        }
+        let mut bottom = [true;CHUNK_SIZE+2];
+        bottom.iter_mut().zip((-1..CHUNK_SIZE as i32+1).into_iter()).for_each(|(i,x)| {
+            *i = self.get_tile(
+                chunk_pos.x * CHUNK_SIZE as i32 + x ,
+                chunk_pos.y * CHUNK_SIZE as i32 - 1,
+                layer
+            ).unwrap().solid();
+        });
 
-        let mut bottom = Vec::new();
-        for x in -1..CHUNK_SIZE as i32+1{
-            let tiles = self.get_tile(chunk_pos.x * CHUNK_SIZE as i32 + x,  chunk_pos.y * CHUNK_SIZE as i32-1,layer).unwrap().solid();
-            bottom.push(tiles);
-        }
+        let mut left = [true;CHUNK_SIZE];
+        left.iter_mut().zip((0..CHUNK_SIZE as i32).into_iter()).for_each(|(i,y)| {
+            *i = self.get_tile(
+                chunk_pos.x * CHUNK_SIZE as i32 - 1,
+                chunk_pos.y * CHUNK_SIZE as i32 + y,
+                layer
+            ).unwrap().solid();
+        });
 
-        let mut left = Vec::new();
-        for y in 0..CHUNK_SIZE as i32{
-            let tiles = self.get_tile(chunk_pos.x * CHUNK_SIZE as i32 -1, chunk_pos.y * CHUNK_SIZE as i32 + y,layer).unwrap().solid();
-            left.push(tiles);
-        }
+        let mut right = [true;CHUNK_SIZE];
+        right.iter_mut().zip((0..CHUNK_SIZE as i32).into_iter()).for_each(|(i,y)| {
+            *i = self.get_tile(
+                chunk_pos.x * CHUNK_SIZE as i32 + CHUNK_SIZE as i32,
+                chunk_pos.y * CHUNK_SIZE as i32 + y,
+                layer
+            ).unwrap().solid();
+        });
 
         ChunkBorders{
             top,
@@ -214,17 +231,20 @@ impl ChunkManager{
         None
     }
 
-    pub fn tiles(&self, player_pos: [f32;2]) -> Vec<u8>{
+    pub fn extract_tiles(&self, player_pos: [f32;2]) -> Vec<u8>{
         let load_distance = CHUNK_LOAD_DISTANCE*CHUNK_SIZE as i32;
 
         let mut tiles = vec![1;(load_distance as usize *2 + CHUNK_SIZE)*(load_distance as usize *2 + CHUNK_SIZE)];//solid
 
-        let player_chunk = [player_pos[0].div_euclid(CHUNK_SIZE as f32) as i32,player_pos[1].div_euclid(CHUNK_SIZE as f32) as i32];
+        let player_chunk = [
+            player_pos[0].div_euclid(CHUNK_SIZE as f32) as i32* CHUNK_SIZE as i32,
+            player_pos[1].div_euclid(CHUNK_SIZE as f32) as i32* CHUNK_SIZE as i32
+        ];
 
         for x in -load_distance..load_distance + CHUNK_SIZE as i32{
             for y in -load_distance..load_distance + CHUNK_SIZE as i32{
-                let fg_tile = self.get_tile(player_chunk[0] * CHUNK_SIZE as i32 + x,player_chunk[1] * CHUNK_SIZE as i32 + y,1).expect("no tile");
-                let bg_tile = self.get_tile(player_chunk[0] * CHUNK_SIZE as i32 + x,player_chunk[1] * CHUNK_SIZE as i32 + y,0).expect("no tile");
+                let fg_tile = self.get_tile(player_chunk[0] + x,player_chunk[1] + y,1).expect("no tile");
+                let bg_tile = self.get_tile(player_chunk[0] + x,player_chunk[1]+ y,0).expect("no tile");
 
                 let width = load_distance * 2 + CHUNK_SIZE as i32;
 
@@ -310,7 +330,7 @@ impl ChunkManager{
         let y = (input.mouse_world_pos[1]+0.5-16.).floor() as i32;
 
         if input.right_mouse{
-            self.set_tile(x,y,9,1);
+            self.set_tile(x,y,0,1);
         }
         else if input.left_mouse{
             self.set_tile(x,y,4,1);
@@ -318,10 +338,10 @@ impl ChunkManager{
     }
 }
 
-pub struct ChunkBorders{
-    pub top: Vec<bool>,
-    pub bottom: Vec<bool>,
-    pub left: Vec<bool>,
-    pub right: Vec<bool>,
+pub struct ChunkBorders {
+    pub top: [bool; CHUNK_SIZE + 2],
+    pub bottom: [bool; CHUNK_SIZE + 2],
+    pub left: [bool; CHUNK_SIZE],
+    pub right: [bool; CHUNK_SIZE],
 }
 

@@ -3,7 +3,7 @@ var inputTex: texture_2d<f32>;
 @group(0) @binding(1)
 var outputTex: texture_storage_2d<rgba16float, write>;
 
-@compute @workgroup_size(16,16)
+@compute @workgroup_size(32,1)
 fn smooth_horizontal(@builtin(global_invocation_id) gid : vec3<u32>){
     let size = textureDimensions(inputTex);
     if (gid.x >= size.x || gid.y >= size.y) {
@@ -27,7 +27,7 @@ fn smooth_horizontal(@builtin(global_invocation_id) gid : vec3<u32>){
     textureStore(outputTex, vec2<i32>(i32(gid.x), i32(gid.y)), new_pixel);
 }
 
-@compute @workgroup_size(16,16)
+@compute @workgroup_size(1,32)
 fn smooth_vertical(@builtin(global_invocation_id) gid : vec3<u32>){
 
     let size = textureDimensions(inputTex);

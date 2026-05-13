@@ -6,5 +6,6 @@ mod camera;
 mod lighting;
 mod mesh;
 mod sprite_batch;
+mod sky;
 
-pub use renderer::Vertex;
+pub use renderer::MeshVertex;

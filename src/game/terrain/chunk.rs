@@ -2,7 +2,7 @@ use easy_gpu::assets::{Material, Mesh};
 use easy_gpu::assets_manager::Handle;
 use easy_gpu::frame::Frame;
 use serde::{Deserialize, Serialize};
-use crate::engine::render::Vertex;
+use crate::engine::render::MeshVertex;
 use crate::game::terrain::chunk_manager::ChunkBorders;
 use crate::game::terrain::terrain_generator::TerrainGenerator;
 use crate::game::terrain::region::{RegionPosition, REGION_WIDTH};
@@ -37,7 +37,7 @@ const TILE_TEX_COORDS: [[[f32;2];9];2] = [[ //bg
 
 #[derive(Serialize,Deserialize)]
 pub struct ChunkData {
-    tiles: Vec<Vec<Tile>>,
+    tiles: [Vec<Tile>;2],
 }
 
 impl ChunkData {
@@ -52,8 +52,8 @@ impl ChunkData {
 
 pub struct Chunk{
     data: ChunkData,
-    meshes: Vec<Option<Handle<Mesh>>>,
-    pub dirty: Vec<bool>,
+    meshes: [Option<Handle<Mesh>>;2],
+    pub dirty: [bool;2],
     pub save: bool,
 }
 
@@ -61,12 +61,13 @@ impl Chunk{
     pub fn new(data:ChunkData)->Self{
         Self{
             data,
-            meshes: vec![None,None],
-            dirty: vec![true, true],
+            meshes: [None,None],
+            dirty: [true;2],
             save: false,
         }
     }
 
+    #[inline(always)]
     pub fn get_tile(&self, x: usize, y: usize, layer: usize) -> &Tile{
         &self.data.tiles[layer][x * CHUNK_SIZE + y]
     }
@@ -95,8 +96,8 @@ impl Chunk{
     }
 
     pub fn destroy_mesh(&mut self){
-        self.dirty = vec![true,true];
-        self.meshes = vec![None,None];
+        self.dirty = [true;2];
+        self.meshes = [None,None];
     }
 
     pub fn draw(&self,frame: &mut Frame,materials: &Vec<Handle<Material>>){
@@ -110,77 +111,102 @@ impl Chunk{
         }
     }
 
-    pub fn build_mesh(&self,layer: usize, position: &ChunkPosition,borders: ChunkBorders) -> Option<(Vec<Vertex>,Vec<u16>)>{
-        const EXPECTED_QUADS: usize = CHUNK_SIZE*CHUNK_SIZE;
+    pub fn build_mesh(
+        &self,
+        layer: usize,
+        position: &ChunkPosition,
+        borders: ChunkBorders,
+    ) -> Option<(Vec<MeshVertex>, Vec<u16>)> {
+        const EXPECTED_QUADS: usize = CHUNK_SIZE * CHUNK_SIZE;
 
-        let mut vertices = Vec::with_capacity(EXPECTED_QUADS *4);
-        let mut indices = Vec::with_capacity(EXPECTED_QUADS*6);
+        let mut vertices = Vec::with_capacity(EXPECTED_QUADS * 4);
+        let mut indices = Vec::with_capacity(EXPECTED_QUADS * 6);
 
         let mut sides: u16 = 0;
 
-        for x in 0..CHUNK_SIZE{
-            for y in 0..CHUNK_SIZE{
-                if self.get_tile(x,y,layer).id > 0{
-                    let neighbours = self.tile_neighbours(x as i32,y as i32,layer,&borders);
-                    let mask = Self::build_mask(neighbours);
-                    let marching_squares_coord = Self::map_marching_squares(mask);
+        let z = 0.8 - layer as f32 * 0.5;
 
-                    let world_x = x as f32 + position.x as f32 * CHUNK_SIZE as f32;
-                    let world_y = y as f32 + position.y as f32 * CHUNK_SIZE as f32;
+        let chunk_world_x = position.x as f32 * CHUNK_SIZE as f32;
+        let chunk_world_y = position.y as f32 * CHUNK_SIZE as f32;
 
-                    let tex_index = TILE_TEX_COORDS[layer][self.get_tile(x,y,layer).id as usize-1];
+        for x in 0..CHUNK_SIZE {
+            let world_x = x as f32 + chunk_world_x;
 
-                    vertices.push (Vertex::new(
-                        [world_x - 0.5, world_y - 0.5,0.8 -layer as f32*0.5 ],
-                        [(tex_index[0] + MARCH_SQR_DIV * marching_squares_coord[0]) * TEX_ATLAS_DIV[0],(tex_index[1] + MARCH_SQR_DIV * marching_squares_coord[1] + MARCH_SQR_DIV)* TEX_ATLAS_DIV[1]]
-                    ));
-                    vertices.push (Vertex::new(
-                        [world_x + 0.5, world_y - 0.5,0.8 -layer as f32*0.5],
-                        [(tex_index[0]  + MARCH_SQR_DIV * marching_squares_coord[0] + MARCH_SQR_DIV)* TEX_ATLAS_DIV[0],(tex_index[1]+ MARCH_SQR_DIV * marching_squares_coord[1] + MARCH_SQR_DIV)* TEX_ATLAS_DIV[1] ],
-                    ));
-                    vertices.push (Vertex::new(
-                        [world_x + 0.5, world_y + 0.5,0.8 -layer as f32*0.5],
-                        [(tex_index[0] + MARCH_SQR_DIV * marching_squares_coord[0] + MARCH_SQR_DIV)* TEX_ATLAS_DIV[0],(tex_index[1]  + MARCH_SQR_DIV * marching_squares_coord[1])* TEX_ATLAS_DIV[1]]
-                    ));
-                    vertices.push (Vertex::new(
-                        [world_x - 0.5, world_y + 0.5,0.8 -layer as f32*0.5],
-                        [(tex_index[0] + MARCH_SQR_DIV * marching_squares_coord[0])* TEX_ATLAS_DIV[0],(tex_index[1]  + MARCH_SQR_DIV * marching_squares_coord[1])* TEX_ATLAS_DIV[1]]
-                    ));
+            for y in 0..CHUNK_SIZE {
+                let tile = self.get_tile(x, y, layer);
 
-                    indices.push(sides + 1);
-                    indices.push(sides + 3);
-                    indices.push(sides);
-
-                    indices.push(sides + 1);
-                    indices.push(sides + 2);
-                    indices.push(sides + 3);
-
-                    sides += 4;
+                if tile.id == 0 {
+                    continue;
                 }
+
+                let world_y = y as f32 + chunk_world_y;
+
+                let mask = self.tile_neighbours(x as i32,y as i32,layer,&borders);
+                let ms = Self::map_marching_squares(mask);
+
+                let tex =
+                    TILE_TEX_COORDS[layer][tile.id as usize - 1];
+
+                let u0 = (tex[0] + MARCH_SQR_DIV * ms[0]) * TEX_ATLAS_DIV[0];
+                let v0 = (tex[1] + MARCH_SQR_DIV * ms[1]) * TEX_ATLAS_DIV[1];
+
+                let u1 = u0 + MARCH_SQR_DIV * TEX_ATLAS_DIV[0];
+                let v1 = v0 + MARCH_SQR_DIV * TEX_ATLAS_DIV[1];
+
+                vertices.extend_from_slice(&[
+                    MeshVertex::new(
+                        [world_x - 0.5, world_y - 0.5, z],
+                        [u0, v1],
+                    ),
+                    MeshVertex::new(
+                        [world_x + 0.5, world_y - 0.5, z],
+                        [u1, v1],
+                    ),
+                    MeshVertex::new(
+                        [world_x + 0.5, world_y + 0.5, z],
+                        [u1, v0],
+                    ),
+                    MeshVertex::new(
+                        [world_x - 0.5, world_y + 0.5, z],
+                        [u0, v0],
+                    ),
+                ]);
+
+                indices.extend_from_slice(&[
+                    sides + 1,
+                    sides + 3,
+                    sides,
+                    sides + 1,
+                    sides + 2,
+                    sides + 3,
+                ]);
+
+                sides += 4;
             }
         }
 
-        let index_count = indices.len() as u32;
-        if index_count == 0 {
+        if indices.is_empty() {
             return None;
         }
 
-        Some((vertices,indices))
+        Some((vertices, indices))
     }
 
     pub fn set_mesh(&mut self,layer: usize,mesh: Handle<Mesh>){
         self.meshes[layer] = Some(mesh);
     }
 
-    fn tile_neighbours(&self,x: i32, y: i32, layer: usize, borders: &ChunkBorders) -> Vec<u8>{
-        let mut neighbours = Vec::new();
+    #[inline(always)]
+    fn tile_neighbours(&self,x: i32, y: i32, layer: usize, borders: &ChunkBorders) -> u8{
+        let mut mask = 0u8;
+        let mut bit = 0;
 
         for i in -1..=1{
             for j in -1..=1{
                 if i == 0 && j == 0 {
                     continue;
                 }
-                let neighbour = if x+i < 0 || x+i == CHUNK_SIZE as i32 || y+j < 0 || y+j == CHUNK_SIZE as i32 {
+                let filled  = if x+i < 0 || x+i == CHUNK_SIZE as i32 || y+j < 0 || y+j == CHUNK_SIZE as i32 {
                     if if j == 1 && y == CHUNK_SIZE as i32 - 1{
                         borders.top[(x+i+1) as usize]
                     }
@@ -197,11 +223,12 @@ impl Chunk{
                 else if self.get_tile((x+i) as usize,(y+j) as usize, layer).id > 0
                 { 1 } else { 0 };
 
-                neighbours.push(neighbour);
+                mask |= (filled as u8) << bit;
+                bit += 1;
             }
         }
 
-        neighbours
+        mask
     }
 
     #[inline(always)]
@@ -209,21 +236,9 @@ impl Chunk{
         LUT[mask as usize]
     }
 
-    #[inline(always)]
-    fn build_mask(n: Vec<u8>) -> u8 {
-        let mut mask = 0;
-
-        for i in 0..8 {
-            mask |= (n[i] & 1) << i;
-        }
-
-        mask
-    }
-
     pub fn mesh(&self,layer: usize) -> &Option<Handle<Mesh>>{
         &self.meshes[layer]
     }
-
 }
 
 #[derive(Hash, PartialEq,Clone,Debug,Eq)]

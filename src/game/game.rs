@@ -7,6 +7,7 @@ use crate::engine::input_manager::InputManager;
 use crate::game::physics::collider::Collider;
 use crate::game::physics::transform::Transform;
 use crate::game::player::player::Player;
+use crate::game::terrain::chunk::CHUNK_SIZE;
 use crate::game::terrain::chunk_manager::ChunkManager;
 use crate::game::terrain::terrain_generator::TerrainGenerator;
 
@@ -15,7 +16,7 @@ pub struct Game{
     pub chunk_manager: ChunkManager,
     terrain_generator: Arc<TerrainGenerator>,
     pub player_position: [f32;2],
-    save_timer: Instant,
+    unload_timer: Instant,
 }
 
 impl Game{
@@ -25,7 +26,16 @@ impl Game{
             chunk_manager: ChunkManager::new(),
             terrain_generator: Arc::new(TerrainGenerator::new()),
             player_position: [0.,0.],
-            save_timer: Instant::now(),
+            unload_timer: Instant::now(),
+        }
+    }
+
+    pub fn init_terrain(&mut self,egpu: &mut easy_gpu::Renderer, file_manager: &Arc<FileManager>){
+        for _ in 0..100{
+        self.chunk_manager.update_data_queue(self.player_position);
+        self.chunk_manager.load_chunks_data(file_manager,&self.terrain_generator);
+        self.chunk_manager.update_mesh_queue(self.player_position);
+        self.chunk_manager.generate_chunk_meshes(egpu);
         }
     }
 
@@ -40,14 +50,16 @@ impl Game{
 
     pub fn update(&mut self,egpu: &mut easy_gpu::Renderer, file_manager: &Arc<FileManager>,input_manager: &InputManager,dt: f32){
         self.chunk_manager.handle_input(&input_manager);
+
         self.chunk_manager.update_data_queue(self.player_position);
         self.chunk_manager.load_chunks_data(file_manager,&self.terrain_generator);
         self.chunk_manager.update_mesh_queue(self.player_position);
         self.chunk_manager.generate_chunk_meshes(egpu);
 
-        if self.save_timer.elapsed().as_secs() > 10{
+        if self.unload_timer.elapsed().as_secs() > 20{
             self.chunk_manager.save_chunks(file_manager);
         self.chunk_manager.unload_chunks(self.player_position);
+            self.unload_timer = Instant::now();
         }
 
         self.update_colliders(dt);
@@ -72,6 +84,6 @@ impl Game{
     }
 
     pub fn extract_tiles(&self) -> Vec<u8>{
-        self.chunk_manager.tiles(self.player_position)
+        self.chunk_manager.extract_tiles(self.player_position)
     }
 }

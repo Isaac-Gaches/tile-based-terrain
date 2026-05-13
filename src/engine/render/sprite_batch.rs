@@ -2,7 +2,7 @@ use easy_gpu::assets::{BufferLayout, GpuInstance, GpuVertex, Mesh, render_textur
 use easy_gpu::assets_manager::Handle;
 use easy_gpu::wgpu::VertexFormat;
 use serde::{Deserialize, Serialize};
-use crate::engine::render::{Camera, Vertex};
+use crate::engine::render::{Camera, MeshVertex};
 use crate::engine::render::lighting::LightingEngine;
 
 pub struct SpriteBatchEngine{
@@ -14,10 +14,10 @@ impl SpriteBatchEngine{
     pub fn new(egpu: &mut easy_gpu::Renderer,camera: &Camera, lighting_engine: &LightingEngine) -> Self{
         let scale = 0.5;
         let vertices = [
-            Vertex::new([-scale, -scale,2.0],[0.,0.]),
-            Vertex::new([scale, -scale,2.0],[1.,0.]),
-            Vertex::new([scale, scale,2.0],[1.,1.]),
-            Vertex::new([-scale, scale,2.0],[0.,1.])
+            MeshVertex::new([-scale, -scale,2.0], [0.,0.]),
+            MeshVertex::new([scale, -scale,2.0], [1.,0.]),
+            MeshVertex::new([scale, scale,2.0], [1.,1.]),
+            MeshVertex::new([-scale, scale,2.0], [0.,1.])
         ];
 
         let indices = [0, 1, 2, 0, 2, 3];
@@ -35,7 +35,7 @@ impl SpriteBatchEngine{
                 sampler(4),
                 uniform(5),
             ])
-            .vertex_layout(Vertex::buffer_layout())
+            .vertex_layout(MeshVertex::buffer_layout())
             .vertex_layout(Instance::buffer_layout())
             .build(egpu);
 

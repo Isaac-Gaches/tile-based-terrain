@@ -1,7 +1,7 @@
 use easy_gpu::assets::{BufferLayout, GpuVertex, Material, MaterialBuilder, render_texture, RenderPipelineBuilder, sampler, SamplerBuilder, uniform};
 use easy_gpu::assets_manager::Handle;
 use easy_gpu::wgpu::{BlendState, FilterMode, TextureFormat, VertexFormat};
-use crate::engine::render::{Camera, Vertex};
+use crate::engine::render::{Camera, MeshVertex};
 use crate::engine::render::lighting::LightingEngine;
 
 pub struct MeshEngine{
@@ -30,7 +30,7 @@ impl MeshEngine{
                 uniform(5),
             ])
             .fs_entry_point("fs_fg_tiles")
-            .vertex_layout(Vertex::buffer_layout())
+            .vertex_layout(MeshVertex::buffer_layout())
             .depth_format(TextureFormat::Depth24Plus)
             .blend_mode(BlendState::REPLACE)
             .build(egpu);
@@ -55,7 +55,7 @@ impl MeshEngine{
                 render_texture(6),
             ])
             .fs_entry_point("fs_bg_tiles")
-            .vertex_layout(Vertex::buffer_layout())
+            .vertex_layout(MeshVertex::buffer_layout())
             .depth_format(TextureFormat::Depth24Plus)
             .blend_mode(BlendState::REPLACE)
             .build(egpu);

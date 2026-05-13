@@ -1,4 +1,4 @@
-use easy_gpu::assets::{Buffer, BufferUsages, compute_texture_float, compute_texture_uint, ComputeBindGroup, ComputeBindGroupBuilder, ComputePipeline, ComputePipelineBuilder, RenderPipeline, Sampler, SamplerBuilder, storage_texture, Texture, TextureBuilder};
+use easy_gpu::assets::{Buffer, BufferUsages, compute_texture_float, compute_texture_uint, ComputeBindGroup, ComputeBindGroupBuilder, ComputePipeline, ComputePipelineBuilder, RenderPipeline, Sampler, SamplerBuilder, storage_texture, Texture, TextureBuilder, uniform, compute_uniform};
 use easy_gpu::assets_manager::Handle;
 use easy_gpu::frame::Frame;
 use easy_gpu::wgpu::{Extent3d, FilterMode, TextureFormat, TextureUsages};
@@ -16,8 +16,7 @@ pub struct LightingEngine{
 
     smooth_vertical_pipeline: Handle<ComputePipeline>,
     smooth_horizontal_pipeline: Handle<ComputePipeline>,
-    diffuse_horizontal_pipeline: Handle<ComputePipeline>,
-    diffuse_vertical_pipeline: Handle<ComputePipeline>,
+    diffuse_pipeline: Handle<ComputePipeline>,
     set_lit_tiles_pipeline: Handle<ComputePipeline>,
     occlusion_pipeline: Handle<ComputePipeline>,
     upscale_pipeline: Handle<ComputePipeline>,
@@ -32,7 +31,8 @@ pub struct LightingEngine{
     pub light_sampler: Handle<Sampler>,
 
     pub light_uniform: Handle<Buffer>,
-    light_meta: LightMeta
+    light_meta: LightMeta,
+    pub sky_light: Handle<Buffer>,
 }
 
 impl LightingEngine{
@@ -80,37 +80,39 @@ impl LightingEngine{
         let smooth_shader = egpu.load_shader(include_str!("shaders/smooth_light.wgsl"));
         let occlusion_shader = egpu.load_shader(include_str!("shaders/ambient_occlusion.wgsl"));
 
-        let diffuse_horizontal_builder = ComputePipelineBuilder::new(diffuse_shader)
+        let diffuse_builder = ComputePipelineBuilder::new(diffuse_shader)
             .bind_group_layout(&[
                 compute_texture_float(0),
                 storage_texture(1,Rgba16Float),
-                compute_texture_uint(2)
+                compute_texture_uint(2),
+                compute_uniform(3)
             ])
-            .entry_point("diffuse_horizontal");
+            .entry_point("diffuse_light");
 
-        let diffuse_horizontal_pipeline = diffuse_horizontal_builder
+        let sky_light = egpu.create_buffer(
+            BufferUsages::COPY_DST | BufferUsages::UNIFORM,
+            32
+        );
+
+        let diffuse_pipeline = diffuse_builder
             .build(egpu);
 
-        let diffuse_vertical_builder = diffuse_horizontal_builder
-            .entry_point("diffuse_vertical");
-
-        let diffuse_vertical_pipeline = diffuse_vertical_builder
-            .build(egpu);
-
-        let set_lit_tiles_pipeline = diffuse_vertical_builder
+        let set_lit_tiles_pipeline = diffuse_builder
             .entry_point("set_lit_tiles")
             .build(egpu);
 
-        let diffuse_bg_a_to_b = ComputeBindGroupBuilder::new(diffuse_horizontal_pipeline.clone())
+        let diffuse_bg_a_to_b = ComputeBindGroupBuilder::new(diffuse_pipeline.clone())
             .texture(0,diffuse_texture_a)
             .texture(1,diffuse_texture_b)
             .texture(2,tile_storage_texture)
+            .storage(3,sky_light)
             .build(egpu);
 
-        let diffuse_bg_b_to_a = ComputeBindGroupBuilder::new(diffuse_horizontal_pipeline)
+        let diffuse_bg_b_to_a = ComputeBindGroupBuilder::new(diffuse_pipeline)
             .texture(0,diffuse_texture_b)
             .texture(1,diffuse_texture_a)
             .texture(2,tile_storage_texture)
+            .storage(3,sky_light)
             .build(egpu);
 
         let smooth_pipeline_builder = ComputePipelineBuilder::new(smooth_shader)
@@ -183,8 +185,7 @@ impl LightingEngine{
             tile_storage_texture,
             smooth_vertical_pipeline,
             smooth_horizontal_pipeline,
-            diffuse_horizontal_pipeline,
-            diffuse_vertical_pipeline,
+            diffuse_pipeline,
             set_lit_tiles_pipeline,
             occlusion_pipeline,
             upscale_pipeline,
@@ -197,6 +198,7 @@ impl LightingEngine{
             light_sampler,
             light_uniform,
             light_meta,
+            sky_light,
         }
     }
     
@@ -215,62 +217,63 @@ impl LightingEngine{
 
     pub fn compute(&self, frame: &mut Frame){
         frame.request_texture_clear(self.diffuse_texture_a);
+        frame.request_texture_clear(self.diffuse_texture_b);
 
-        let mut dispatch = (
-            ((CHUNK_LOAD_DISTANCE as f32*2.*CHUNK_SIZE as f32 + CHUNK_SIZE as f32)/16.).ceil() as u32,
-            ((CHUNK_LOAD_DISTANCE as f32*2.*CHUNK_SIZE as f32 + CHUNK_SIZE as f32)/16.).ceil() as u32,
+        let mut pixels = (
+            (CHUNK_LOAD_DISTANCE as f32*2.*CHUNK_SIZE as f32 + CHUNK_SIZE as f32) as u32,
+            (CHUNK_LOAD_DISTANCE as f32*2.*CHUNK_SIZE as f32 + CHUNK_SIZE as f32) as u32,
             1
         );
 
         frame.compute(
             self.diffuse_bg_b_to_a,
             self.set_lit_tiles_pipeline,
-            dispatch
+            (pixels.0/16, pixels.1/16, pixels.2),
         );
         frame.compute(
             self.occlusion_bg,
             self.occlusion_pipeline,
-            dispatch
+            (pixels.0/16, pixels.1/16, pixels.2)
         );
-        for _ in 0..24{
+        for _ in 0..14{
             frame.compute(
                 self.diffuse_bg_a_to_b,
-                self.diffuse_horizontal_pipeline,
-                dispatch
+                self.diffuse_pipeline,
+                (pixels.0/16, pixels.1/16, pixels.2)
             );
             frame.compute(
                 self.diffuse_bg_b_to_a,
-                self.diffuse_vertical_pipeline,
-                dispatch
+                self.diffuse_pipeline,
+                (pixels.0/16, pixels.0/16, pixels.2)
             );
         }
         frame.compute(
             self.diffuse_bg_b_to_a,
             self.set_lit_tiles_pipeline,
-            dispatch
+            (pixels.0/16, pixels.1/16, pixels.2)
         );
 
-        dispatch = (
-            dispatch.0 * 2,
-            dispatch.1 * 2,
+        pixels = (
+            pixels.0 * 2,
+            pixels.1 * 2,
             1
         );
 
         frame.compute(
             self.upscale_bg,
             self.upscale_pipeline,
-            dispatch
+            (pixels.0/16, pixels.1/16, pixels.2)
         );
-        for _ in 0..4{
+        for _ in 0..5{
             frame.compute(
                 self.smooth_bg_a_to_b,
                 self.smooth_vertical_pipeline,
-                dispatch
+                (pixels.0, pixels.1/32, pixels.2)
             );
             frame.compute(
                 self.smooth_bg_b_to_a,
                 self.smooth_horizontal_pipeline,
-                dispatch
+                (pixels.0/32, pixels.1, pixels.2)
             );
         }
     }

@@ -47,7 +47,7 @@ impl SpriteBatchEngine{
 }
 
 #[repr(C)]
-#[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable,Serialize,Deserialize)]
+#[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct Instance { //32
     pub position: [f32;2],
     pub rotation: f32,
@@ -66,4 +66,10 @@ impl GpuInstance for Instance{
             .attribute(5,16,VertexFormat::Uint32)
             .attribute(6,20,VertexFormat::Float32x4)
     }
+}
+
+#[repr(C)]
+#[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct SpriteVertex{
+    pub position: [f32;2],
 }

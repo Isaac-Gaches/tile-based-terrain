@@ -1,34 +1,39 @@
 use std::mem;
-use easy_gpu::assets::{uniform, Buffer, BufferLayout, BufferUsages, GpuVertex, Material, MaterialBuilder, Mesh, RenderPipelineBuilder};
+use easy_gpu::assets::{uniform, Buffer, BufferLayout, BufferUsages, GpuInstance, GpuVertex, Material, MaterialBuilder, Mesh, RenderPipelineBuilder};
 use easy_gpu::assets_manager::Handle;
 use easy_gpu::frame::Frame;
-use easy_gpu::wgpu::{TextureFormat, VertexFormat};
+use easy_gpu::wgpu::{TextureFormat, VertexFormat, VertexStepMode};
 use crate::engine::render::MeshVertex;
 
 pub struct Sky{
     light_colour: [f32;3],
     time: f32,
-    material: Handle<Material>,
     quad: Handle<Mesh>,
-    uniform: SkyUniform,
-    buffer: Handle<Buffer>,
+
+    sky_material: Handle<Material>,
+    sky_uniform: SkyUniform,
+    sky_buffer: Handle<Buffer>,
+
+    star_material: Handle<Material>,
+    star_uniform: Handle<Buffer>,
+    star_buffer: Handle<Buffer>,
 }
 
 impl Sky{
     pub fn new(egpu: &mut easy_gpu::Renderer)-> Self {
         let shader = egpu.load_shader(include_str!("shaders/sky.wgsl"));
-        let pipeline = RenderPipelineBuilder::new(shader)
+        let sky_pipeline = RenderPipelineBuilder::new(shader)
             .depth_writes_enabled(false)
             .depth_format(TextureFormat::Depth24Plus)
             .vertex_layout(SkyVertex::buffer_layout())
             .material_layout(&[uniform(0)])
             .build(egpu);
-        let buffer = egpu.create_buffer(
+        let sky_buffer = egpu.create_buffer(
             BufferUsages::COPY_DST | BufferUsages::UNIFORM,
             size_of::<SkyUniform>() as u64
         );
-        let material = MaterialBuilder::new(pipeline)
-            .uniform(0,buffer)
+        let sky_material = MaterialBuilder::new(sky_pipeline)
+            .uniform(0,sky_buffer)
             .build(egpu);
 
         let vertices = [
@@ -42,13 +47,47 @@ impl Sky{
 
         let quad = egpu.create_mesh(&vertices, &indices);
 
+        let shader = egpu.load_shader(include_str!("shaders/stars.wgsl"));
+        let pipeline = RenderPipelineBuilder::new(shader)
+            .depth_writes_enabled(false)
+            .depth_format(TextureFormat::Depth24Plus)
+            .vertex_layout(SkyVertex::buffer_layout())
+            .vertex_layout(Star::buffer_layout())
+            .material_layout(&[uniform(0)])
+            .build(egpu);
+        let buffer = egpu.create_buffer(
+            BufferUsages::COPY_DST | BufferUsages::UNIFORM,
+            size_of::<SkyUniform>() as u64
+        );
+        let star_uniform = egpu.create_buffer(
+            BufferUsages::COPY_DST | BufferUsages::UNIFORM,
+            size_of::<StarUniform>() as u64
+        );
+        let star_material = MaterialBuilder::new(pipeline)
+            .uniform(0,star_uniform)
+            .build(egpu);
+
+        let stars = (0..1000).map(|i|{
+            Star{
+                position: [rand::random_range(-1.0..1.0),rand::random_range(-1.0..1.0)],
+            }
+        }).collect::<Vec<Star>>();
+
+        let star_buffer = egpu.create_buffer_with_contents(
+          BufferUsages::COPY_DST | BufferUsages::VERTEX,
+          bytemuck::cast_slice(&stars),
+        );
+
         Self{
             light_colour: [1.0,1.0,1.0],
-            time: 0.5,
-            material,
+            time: 0.0,
+            sky_material,
             quad,
-            uniform: SkyUniform::new(),
-            buffer,
+            sky_uniform: SkyUniform::new(),
+            sky_buffer,
+            star_material,
+            star_uniform,
+            star_buffer,
         }
     }
 
@@ -58,8 +97,9 @@ impl Sky{
 
         self.blend_sky();
 
-        egpu.write_buffer(self.buffer, self.uniform);
+        egpu.write_buffer(self.sky_buffer, self.sky_uniform);
         egpu.write_buffer(sky_light_buffer, self.light_colour);
+        egpu.write_buffer(self.star_uniform,StarUniform{time: self.time});
     }
 
     fn blend_sky(&mut self){
@@ -67,13 +107,13 @@ impl Sky{
         const DAY_HORIZON: [f32;3]  = [0.75, 0.90, 1.00];
         const DAY_LIGHT: [f32;3] = [1.0,1.0,1.0];
 
-        const SUNSET_TOP: [f32;3]   = [0.85, 0.1, 0.20];
-        const SUNSET_HORIZON: [f32;3] = [0.9, 0.2, 0.10];
+        const SUNSET_TOP: [f32;3]   = [0.6, 0.05, 0.20];
+        const SUNSET_HORIZON: [f32;3] = [0.8, 0.3, 0.10];
         const LOW_SUN_LIGHT: [f32;3] = [0.8,0.4,0.1];
 
-        const NIGHT_TOP: [f32;3]    = [0.005, 0.005, 0.01];
-        const NIGHT_HORIZON: [f32;3] = [0.01, 0.005, 0.02];
-        const NIGHT_LIGHT: [f32;3] = [0.02,0.02,0.02];
+        const NIGHT_TOP: [f32;3]    = [0., 0., 0.];
+        const NIGHT_HORIZON: [f32;3] = [0.002, 0.001, 0.004];
+        const NIGHT_LIGHT: [f32;3] = [0.01,0.01,0.01];
 
 
         const DAWN_START: f32 = 0.15;
@@ -158,7 +198,7 @@ impl Sky{
 
         self.light_colour = colours.2;
 
-        self.uniform.set_colour(
+        self.sky_uniform.set_colour(
             colours.0,
             colours.1,
         );
@@ -166,9 +206,16 @@ impl Sky{
 
     pub fn draw(&self,frame: &mut Frame){
         frame.draw_mesh(
-            self.material,
+            self.sky_material,
             self.quad
-        )
+        );
+
+        frame.draw_instances(
+            self.star_buffer,
+            self.star_material,
+            self.quad,
+            0..1000
+        );
     }
 }
 fn lerp(a: [f32;3], b: [f32;3], t: f32) -> [f32;3] {
@@ -221,5 +268,26 @@ impl GpuVertex for SkyVertex{
         BufferLayout::new()
             .stride(size_of::<SkyVertex>() as u64)
             .attribute(0,0,VertexFormat::Float32x2)
+    }
+}
+
+#[repr(C)]
+#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+struct StarUniform{
+    time: f32
+}
+
+#[repr(C)]
+#[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
+struct Star {
+    position: [f32;2],
+}
+
+impl GpuInstance for Star {
+    fn buffer_layout() -> BufferLayout {
+        BufferLayout::new()
+            .stride(size_of::<Self>() as u64)
+            .step_mode(VertexStepMode::Instance)
+            .attribute(1,0,VertexFormat::Float32x2)
     }
 }

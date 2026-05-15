@@ -8,4 +8,4 @@ mod mesh;
 mod sprite_batch;
 mod sky;
 
-pub use renderer::MeshVertex;
+pub use mesh::MeshVertex;

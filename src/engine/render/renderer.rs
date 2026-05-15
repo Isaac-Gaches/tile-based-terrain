@@ -46,28 +46,3 @@ impl Renderer{
     }
 }
 
-#[repr(C)]
-#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
-pub struct MeshVertex {
-    position: [f32;3],
-    pad: f32,
-    uv: [f32;2]
-}
-impl MeshVertex {
-    #[inline(always)]
-    pub fn new(position: [f32;3],uv: [f32;2]) -> Self {
-        MeshVertex {
-            position,
-            pad: 0.0,
-            uv,
-        }
-    }
-}
-impl GpuVertex for MeshVertex {
-    fn buffer_layout() -> BufferLayout {
-        BufferLayout::new()
-            .stride(size_of::<Self>() as u64)
-            .attribute(0,0,VertexFormat::Float32x3)
-            .attribute(1,16,VertexFormat::Float32x2)
-    }
-}

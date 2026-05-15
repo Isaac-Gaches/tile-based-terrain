@@ -1,7 +1,7 @@
 use easy_gpu::assets::{BufferLayout, GpuVertex, Material, MaterialBuilder, render_texture, RenderPipelineBuilder, sampler, SamplerBuilder, uniform};
 use easy_gpu::assets_manager::Handle;
 use easy_gpu::wgpu::{BlendState, FilterMode, TextureFormat, VertexFormat};
-use crate::engine::render::{Camera, MeshVertex};
+use crate::engine::render::{Camera};
 use crate::engine::render::lighting::LightingEngine;
 
 pub struct MeshEngine{
@@ -74,5 +74,31 @@ impl MeshEngine{
             fg_mesh_material,
             bg_mesh_material,
         }
+    }
+}
+
+#[repr(C)]
+#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct MeshVertex {
+    position: [f32;3],
+    pad: f32,
+    uv: [f32;2]
+}
+impl MeshVertex {
+    #[inline(always)]
+    pub fn new(position: [f32;3],uv: [f32;2]) -> Self {
+        MeshVertex {
+            position,
+            pad: 0.0,
+            uv,
+        }
+    }
+}
+impl GpuVertex for MeshVertex {
+    fn buffer_layout() -> BufferLayout {
+        BufferLayout::new()
+            .stride(size_of::<Self>() as u64)
+            .attribute(0,0,VertexFormat::Float32x3)
+            .attribute(1,16,VertexFormat::Float32x2)
     }
 }

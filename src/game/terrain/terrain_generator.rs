@@ -83,15 +83,24 @@ impl TerrainGenerator{
                     } else {
                         let ore = self.small_noise.get_noise_2d(tile_x,tile_y);
 
-                        if ore < -0.6 {
-                            tiles[1].push(Tile::new(6));
-                            tiles[0].push(Tile::new(3));
-                        } else if tile_y <= dirt_level {
-                            tiles[1].push(Tile::new(3));
-                            tiles[0].push(Tile::new(3));
+                        if tile_y <= dirt_level {
+                            if ore < -0.6 {
+                                tiles[1].push(Tile::new(6));
+                                tiles[0].push(Tile::new(3));
+                            }
+                            else{
+                                tiles[1].push(Tile::new(3));
+                                tiles[0].push(Tile::new(3));
+                            }
                         } else if tile_y < height - 20. {
-                            tiles[1].push(Tile::new(3));
-                            tiles[0].push(Tile::new(3));
+                            if ore < -0.6 {
+                                tiles[1].push(Tile::new(6));
+                                tiles[0].push(Tile::new(3));
+                            }
+                            else{
+                                tiles[1].push(Tile::new(3));
+                                tiles[0].push(Tile::new(3));
+                            }
                         } else if tile_y < height - 2. {
                             tiles[1].push(Tile::new(2));
                             tiles[0].push(Tile::new(2));

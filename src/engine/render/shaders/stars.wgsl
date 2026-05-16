@@ -18,7 +18,6 @@ struct Time{
 @group(0) @binding(0)
 var<uniform> time: Time;
 
-// Simple hash from position
 fn hash(p: vec2<f32>) -> f32 {
     return fract(
         sin(dot(p, vec2<f32>(127.1, 311.7)))
@@ -35,7 +34,7 @@ fn vs_main(
     var out: VertexOutput;
 
     out.position = vec4<f32>(
-        in.position * 0.001 + star.position,
+        in.position * 0.0015 + star.position,
         0.999,
         1.0
     );
@@ -50,7 +49,7 @@ fn vs_main(
 
     let visibility = star_visibility(time.time);
 
-    out.brightness = twinkle * visibility;
+    out.brightness = twinkle * visibility * (star.position.y + 1.0) * 0.5;
 
     return out;
 }
@@ -75,8 +74,5 @@ fn star_visibility(t: f32) -> f32 {
 fn fs_main(in: VertexOutput)
     -> @location(0) vec4<f32>
 {
-    if in.brightness == 0. || length(in.uv) > 1.0{
-        discard ;
-    }
-    return vec4<f32>(vec3<f32>(in.brightness), 1.0);
+    return vec4<f32>(1.0,1.0,1.0, (1.0 - length(in.uv)) * in.brightness);
 }

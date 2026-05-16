@@ -39,7 +39,7 @@ impl Camera{
             self.data.zoom -= ZOOM * dt;
         }
 
-        self.data.zoom = self.data.zoom.clamp(0.015,0.1);
+        self.data.zoom = self.data.zoom.clamp(0.01,0.1);
 
         egpu.write_buffer(self.buffer,self.data);
     }

@@ -25,7 +25,8 @@ var tile_sampler: sampler;
 
 struct LightMeta{
     position: vec2<f32>,
-    render_distance: f32,
+    v_render_distance: f32,
+    h_render_distance: f32,
     chunk_size: f32,
 }
 
@@ -45,8 +46,8 @@ fn vs_main(
 ) -> VertexOutput {
     var out: VertexOutput;
     out.light_tex_coord = vec2<f32>(
-        (vertex.position.x + 0.5 + light_meta.render_distance - light_meta.position.x)/(light_meta.render_distance*2.+light_meta.chunk_size),
-        1.0-(vertex.position.y - 0.5 + light_meta.render_distance - light_meta.position.y)/(light_meta.render_distance*2.+light_meta.chunk_size)
+        (vertex.position.x + 0.5 + light_meta.h_render_distance - light_meta.position.x)/(light_meta.h_render_distance*2.+light_meta.chunk_size),
+        1.0-(vertex.position.y - 0.5 + light_meta.v_render_distance - light_meta.position.y)/(light_meta.v_render_distance*2.+light_meta.chunk_size)
     );
     out.tile_tex_coord = vertex.tile_tex_coord;
     out.clip_position = vec4<f32>((vertex.position- vec3<f32>(camera.position,0.)) * vec3<f32>(camera.zoom,camera.zoom,1.0) * vec3<f32>(1.0,camera.ratio,1.0),1.0);

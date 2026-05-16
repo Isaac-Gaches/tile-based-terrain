@@ -1,11 +1,12 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
+use ahash::{AHashMap, AHashSet};
 use easy_gpu::assets::Material;
 use easy_gpu::assets_manager::Handle;
 use easy_gpu::frame::Frame;
 use rayon::iter::{ParallelDrainFull, ParallelDrainRange};
-use rayon::prelude::{IntoParallelRefIterator, ParallelIterator};
+use rayon::prelude::{IntoParallelRefIterator, ParallelIterator, ParallelSlice};
 use crate::engine::file_manager::FileManager;
 use crate::engine::input_manager::InputManager;
 use crate::game::terrain::chunk::{CHUNK_SIZE, ChunkPosition, ChunkData, Chunk};
@@ -14,20 +15,22 @@ use crate::game::terrain::tile::Tile;
 
 pub struct ChunkManager{
     pub dirty: bool,
-    chunks: HashMap<ChunkPosition,Chunk>,
-    data_load_queue: HashSet<ChunkPosition>,
-    mesh_load_queue: HashSet<ChunkPosition>,
+    chunks: AHashMap<ChunkPosition,Chunk>,
+    data_load_queue: AHashSet<ChunkPosition>,
+    mesh_load_queue: AHashSet<ChunkPosition>,
     mesh_materials: Vec<Handle<Material>>
 }
-pub const CHUNK_LOAD_DISTANCE: i32 = 3;
+pub const HORIZONTAL_CHUNK_LOAD_DISTANCE: i32 = 3;
+pub const VERTICAL_CHUNK_LOAD_DISTANCE: i32 = 2;
+
 
 impl ChunkManager{
     pub fn new()->Self{
         Self{
             dirty: false,
-            chunks: HashMap::new(),
-            data_load_queue: HashSet::new(),
-            mesh_load_queue: HashSet::new(),
+            chunks: AHashMap::new(),
+            data_load_queue: AHashSet::new(),
+            mesh_load_queue: AHashSet::new(),
             mesh_materials: vec![],
         }
     }
@@ -41,7 +44,7 @@ impl ChunkManager{
             let x_dist = ((chunk_pos.x * CHUNK_SIZE as i32) as f32 + (CHUNK_SIZE as f32/2.) - player_pos[0]).abs();
             let y_dist = ((chunk_pos.y * CHUNK_SIZE as i32) as f32 + (CHUNK_SIZE as f32/2.) - player_pos[1]).abs();
 
-            if x_dist >= (CHUNK_LOAD_DISTANCE + 2) as f32 * CHUNK_SIZE as f32 || y_dist >= (CHUNK_LOAD_DISTANCE + 2) as f32 * CHUNK_SIZE as f32{
+            if x_dist >= (HORIZONTAL_CHUNK_LOAD_DISTANCE + 2) as f32 * CHUNK_SIZE as f32 || y_dist >= (VERTICAL_CHUNK_LOAD_DISTANCE + 2) as f32 * CHUNK_SIZE as f32{
                 unload.push(chunk_pos.clone());
             }
         }
@@ -56,8 +59,8 @@ impl ChunkManager{
             player_pos[0].div_euclid(CHUNK_SIZE as f32) as i32,
             player_pos[1].div_euclid(CHUNK_SIZE as f32) as i32
         );
-        for x in -(CHUNK_LOAD_DISTANCE+1)..=(CHUNK_LOAD_DISTANCE+1) {
-            for y in -(CHUNK_LOAD_DISTANCE+1)..=(CHUNK_LOAD_DISTANCE+1) {
+        for x in -(HORIZONTAL_CHUNK_LOAD_DISTANCE+1)..=(HORIZONTAL_CHUNK_LOAD_DISTANCE+1) {
+            for y in -(VERTICAL_CHUNK_LOAD_DISTANCE+1)..=(VERTICAL_CHUNK_LOAD_DISTANCE+1) {
                 let chunk_pos = ChunkPosition::new(
                     player_chunk.x + x,
                     player_chunk.y + y
@@ -75,7 +78,7 @@ impl ChunkManager{
             let x_dist = ((chunk_pos.x * CHUNK_SIZE as i32) as f32 + (CHUNK_SIZE as f32/2.) - player_pos[0]).abs();
             let y_dist = ((chunk_pos.y * CHUNK_SIZE as i32) as f32 + (CHUNK_SIZE as f32/2.) - player_pos[1]).abs();
 
-            if x_dist >= (CHUNK_LOAD_DISTANCE) as f32 * CHUNK_SIZE as f32 || y_dist >= (CHUNK_LOAD_DISTANCE) as f32 * CHUNK_SIZE as f32{
+            if x_dist >= (HORIZONTAL_CHUNK_LOAD_DISTANCE) as f32 * CHUNK_SIZE as f32 || y_dist >= (VERTICAL_CHUNK_LOAD_DISTANCE) as f32 * CHUNK_SIZE as f32{
                 if chunk.has_mesh(){
                     chunk.destroy_mesh();
                 }
@@ -117,43 +120,51 @@ impl ChunkManager{
     }
 
     pub fn generate_chunk_meshes(&mut self, egpu: &mut easy_gpu::Renderer) {
-        if self.mesh_load_queue.len() == 0{
+        if self.mesh_load_queue.is_empty() {
             return;
         }
-        let jobs: Vec<_> = self
-            .mesh_load_queue
-            .drain()
-            .flat_map(|chunk_pos| {
-                let chunk = self.chunks.get_mut(&chunk_pos).expect("chunk doesn't exist");
-                let mut dirty_layers = Vec::new();
-                if chunk.dirty[1] {
-                    dirty_layers.push((chunk_pos.clone(), 1));
-                }
-                if chunk.dirty[0] {
-                    dirty_layers.push((chunk_pos, 0));
-                }
+
+        let mut jobs = Vec::new();
+
+        for chunk_pos in self.mesh_load_queue.drain() {
+            if let Some(chunk) = self.chunks.get_mut(&chunk_pos) {
+                let dirty = chunk.dirty;
                 chunk.remove_mark();
-                dirty_layers
-            })
-            .collect();
+
+                if dirty[1] {
+                    jobs.push((chunk_pos.clone(), 1));
+                }
+                if dirty[0] {
+                    jobs.push((chunk_pos, 0));
+                }
+            }
+        }
+
+        if jobs.is_empty() {
+            return;
+        }
 
         let generated_meshes: Vec<_> = jobs
-            .par_iter()
-            .map(|(chunk_pos, layer)| {
-                let borders = self.chunk_borders(chunk_pos, *layer);
-                let chunk = self.chunks.get(chunk_pos).expect("chunk doesn't exist");
-                let mesh_data = chunk.build_mesh(*layer, chunk_pos, borders);
+            .par_chunks(4)
+            .flat_map_iter(|chunks| {
+                chunks.iter().filter_map(|(chunk_pos, layer)| {
+                    let chunk = self.chunks.get(chunk_pos)?;
 
-                (chunk_pos, *layer, mesh_data)
+                    let borders = self.chunk_borders(chunk_pos, *layer);
+                    let mesh_data = chunk.build_mesh(*layer, chunk_pos, borders)?;
+
+                    Some((chunk_pos, *layer, mesh_data))
+                })
             })
             .collect();
 
-        for (chunk_pos, layer, mesh_data) in generated_meshes {
-            let chunk = self.chunks.get_mut(&chunk_pos).expect("chunk doesn't exist");
-            if let Some((vertices,indices)) = mesh_data {
-                let mesh = egpu.create_mesh(vertices.as_slice(),indices.as_slice());
-                chunk.set_mesh(layer,mesh);
-            }
+        for item in generated_meshes.into_iter() {
+            let (chunk_pos, layer, mesh_data) = item;
+                if let Some(chunk) = self.chunks.get_mut(&chunk_pos) {
+                    let mesh = egpu.create_mesh(&mesh_data.0, &mesh_data.1);
+                    chunk.set_mesh(layer, mesh);
+                }
+
         }
     }
     
@@ -232,38 +243,39 @@ impl ChunkManager{
     }
 
     pub fn extract_tiles(&self, player_pos: [f32;2]) -> Vec<u8>{
-        let load_distance = CHUNK_LOAD_DISTANCE*CHUNK_SIZE as i32;
+        let horizontal_load_distance = HORIZONTAL_CHUNK_LOAD_DISTANCE*CHUNK_SIZE as i32;
+        let vertical_load_distance = VERTICAL_CHUNK_LOAD_DISTANCE*CHUNK_SIZE as i32;
 
-        let mut tiles = vec![1;(load_distance as usize *2 + CHUNK_SIZE)*(load_distance as usize *2 + CHUNK_SIZE)];//solid
+        let mut tiles = vec![1;(horizontal_load_distance as usize *2 + CHUNK_SIZE)*(vertical_load_distance as usize *2 + CHUNK_SIZE)];//solid
 
         let player_chunk = [
             player_pos[0].div_euclid(CHUNK_SIZE as f32) as i32* CHUNK_SIZE as i32,
             player_pos[1].div_euclid(CHUNK_SIZE as f32) as i32* CHUNK_SIZE as i32
         ];
 
-        for x in -load_distance..load_distance + CHUNK_SIZE as i32{
-            for y in -load_distance..load_distance + CHUNK_SIZE as i32{
+        for x in -horizontal_load_distance..horizontal_load_distance + CHUNK_SIZE as i32{
+            for y in -vertical_load_distance..vertical_load_distance + CHUNK_SIZE as i32{
                 let fg_tile = self.get_tile(player_chunk[0] + x,player_chunk[1] + y,1).expect("no tile");
                 let bg_tile = self.get_tile(player_chunk[0] + x,player_chunk[1]+ y,0).expect("no tile");
 
-                let width = load_distance * 2 + CHUNK_SIZE as i32;
+                let width = horizontal_load_distance * 2 + CHUNK_SIZE as i32;
 
                 if fg_tile.id == 0{
                     if bg_tile.id == 0{
-                        tiles[((y+load_distance) * width + (x+load_distance )) as usize] = 0;//empty
+                        tiles[((y+vertical_load_distance) * width + (x+horizontal_load_distance )) as usize] = 0;//empty
                     }
                     else{
-                        tiles[((y+load_distance ) * width + (x+load_distance)) as usize] = 2;//wall
+                        tiles[((y+vertical_load_distance ) * width + (x+horizontal_load_distance)) as usize] = 2;//wall
                     }
                 }
                 else if fg_tile.id == 4{//lights
-                    tiles[((y+load_distance) * width + (x+load_distance)) as usize] = 4;
+                    tiles[((y+vertical_load_distance) * width + (x+horizontal_load_distance)) as usize] = 4;
                 }
                 else if fg_tile.id == 6{
-                    tiles[((y+load_distance ) * width + (x+load_distance)) as usize] = 6;
+                    tiles[((y+vertical_load_distance ) * width + (x+horizontal_load_distance)) as usize] = 6;
                 }
                 else if fg_tile.id == 9{
-                    tiles[((y+load_distance ) * width + (x+load_distance )) as usize] = 9;
+                    tiles[((y+vertical_load_distance ) * width + (x+horizontal_load_distance )) as usize] = 9;
                 }
 
             }

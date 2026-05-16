@@ -4,7 +4,7 @@ use easy_gpu::frame::Frame;
 use easy_gpu::wgpu::{Extent3d, FilterMode, TextureFormat, TextureUsages};
 use easy_gpu::wgpu::TextureFormat::{Rgba16Float, Rgba8Unorm};
 use crate::game::terrain::chunk::CHUNK_SIZE;
-use crate::game::terrain::chunk_manager::{CHUNK_LOAD_DISTANCE};
+use crate::game::terrain::chunk_manager::{HORIZONTAL_CHUNK_LOAD_DISTANCE, VERTICAL_CHUNK_LOAD_DISTANCE};
 
 pub struct LightingEngine{
     pub smooth_texture_a: Handle<Texture>,
@@ -38,8 +38,8 @@ impl LightingEngine{
     pub fn new(egpu: &mut easy_gpu::Renderer) -> Self{
         let diffuse_texture_builder = TextureBuilder::new()
             .size(Extent3d{
-                width: CHUNK_LOAD_DISTANCE as u32*CHUNK_SIZE as u32*2 + CHUNK_SIZE as u32,
-                height: CHUNK_LOAD_DISTANCE as u32*CHUNK_SIZE as u32*2 + CHUNK_SIZE as u32,
+                width: HORIZONTAL_CHUNK_LOAD_DISTANCE as u32*CHUNK_SIZE as u32*2 + CHUNK_SIZE as u32,
+                height: VERTICAL_CHUNK_LOAD_DISTANCE as u32*CHUNK_SIZE as u32*2 + CHUNK_SIZE as u32,
                 depth_or_array_layers: 1,
             })
             .format(Rgba8Unorm)
@@ -55,8 +55,8 @@ impl LightingEngine{
 
         let smooth_texture_builder = occlusion_texture_builder
             .size(Extent3d{
-                width: CHUNK_LOAD_DISTANCE as u32*CHUNK_SIZE as u32*4 + CHUNK_SIZE as u32 * 2,
-                height: CHUNK_LOAD_DISTANCE as u32*CHUNK_SIZE as u32*4 + CHUNK_SIZE as u32 * 2,
+                width: HORIZONTAL_CHUNK_LOAD_DISTANCE as u32*CHUNK_SIZE as u32*4 + CHUNK_SIZE as u32 * 2,
+                height: VERTICAL_CHUNK_LOAD_DISTANCE as u32*CHUNK_SIZE as u32*4 + CHUNK_SIZE as u32 * 2,
                 depth_or_array_layers: 1,
             })
             .format(Rgba16Float);
@@ -66,8 +66,8 @@ impl LightingEngine{
 
         let tile_storage_texture = smooth_texture_builder
             .size(Extent3d{
-                width: CHUNK_LOAD_DISTANCE as u32*CHUNK_SIZE as u32*2 + CHUNK_SIZE as u32,
-                height: CHUNK_LOAD_DISTANCE as u32*CHUNK_SIZE as u32*2 + CHUNK_SIZE as u32,
+                width: HORIZONTAL_CHUNK_LOAD_DISTANCE as u32*CHUNK_SIZE as u32*2 + CHUNK_SIZE as u32,
+                height: VERTICAL_CHUNK_LOAD_DISTANCE as u32*CHUNK_SIZE as u32*2 + CHUNK_SIZE as u32,
                 depth_or_array_layers: 1,
             })
             .usage(TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_DST)
@@ -196,8 +196,8 @@ impl LightingEngine{
     
     pub fn update(&mut self, egpu: &mut easy_gpu::Renderer,tiles: Vec<u8>,player_pos: [f32;2]){
         egpu.write_texture(self.tile_storage_texture,tiles.as_slice(),1,Extent3d{
-            width: (CHUNK_LOAD_DISTANCE*CHUNK_SIZE as i32) as u32 * 2+ CHUNK_SIZE as u32,
-            height: (CHUNK_LOAD_DISTANCE*CHUNK_SIZE as i32) as u32 * 2+ CHUNK_SIZE as u32,
+            width: (HORIZONTAL_CHUNK_LOAD_DISTANCE*CHUNK_SIZE as i32) as u32 * 2+ CHUNK_SIZE as u32,
+            height: (VERTICAL_CHUNK_LOAD_DISTANCE*CHUNK_SIZE as i32) as u32 * 2+ CHUNK_SIZE as u32,
             depth_or_array_layers: 1,
         });
         self.light_meta.pos = [
@@ -212,8 +212,8 @@ impl LightingEngine{
         frame.request_texture_clear(self.diffuse_texture_b);
 
         let mut pixels = (
-            (CHUNK_LOAD_DISTANCE as f32*2.*CHUNK_SIZE as f32 + CHUNK_SIZE as f32) as u32,
-            (CHUNK_LOAD_DISTANCE as f32*2.*CHUNK_SIZE as f32 + CHUNK_SIZE as f32) as u32,
+            (HORIZONTAL_CHUNK_LOAD_DISTANCE as f32*2.*CHUNK_SIZE as f32 + CHUNK_SIZE as f32) as u32,
+            (VERTICAL_CHUNK_LOAD_DISTANCE as f32*2.*CHUNK_SIZE as f32 + CHUNK_SIZE as f32) as u32,
             1
         );
 
@@ -275,16 +275,20 @@ impl LightingEngine{
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct LightMeta{
     pub pos:[f32;2],
-    pub render_distance:f32,
-    pub chunk_size: f32
+    vertical_render_distance:f32,
+    horizontal_render_distance: f32,
+    chunk_size: f32,
+    _pad: f32
 }
 
 impl LightMeta{
     pub fn new() -> Self{
         Self{
             pos: [0.,0.],
-            render_distance: CHUNK_LOAD_DISTANCE as f32 * CHUNK_SIZE as f32,
+            vertical_render_distance: VERTICAL_CHUNK_LOAD_DISTANCE as f32 * CHUNK_SIZE as f32,
             chunk_size: CHUNK_SIZE as f32,
+            horizontal_render_distance: HORIZONTAL_CHUNK_LOAD_DISTANCE as f32 * CHUNK_SIZE as f32,
+            _pad: 0.0,
         }
     }
 }

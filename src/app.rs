@@ -85,13 +85,13 @@ impl ApplicationHandler for App{
 
                 renderer.update(&self.input_manager, self.game.player_position,dt);
 
-                if self.game.chunk_manager.dirty || self.light_update_timer.elapsed().as_secs_f32() > 1.0{
+                if self.game.chunk_manager.dirty || self.light_update_timer.elapsed().as_secs_f32() > 2.0{
                     renderer.lighting_engine.update(&mut renderer.egpu, self.game.extract_tiles(), self.game.player_position);
                 }
 
                 let frame = renderer.egpu.begin_frame();
 
-                if self.game.chunk_manager.dirty || self.light_update_timer.elapsed().as_secs_f32() > 1.0{
+                if self.game.chunk_manager.dirty || self.light_update_timer.elapsed().as_secs_f32() > 2.0{
                     renderer.lighting_engine.compute(frame);
                     self.game.chunk_manager.dirty = false;
                     self.light_update_timer = Instant::now();

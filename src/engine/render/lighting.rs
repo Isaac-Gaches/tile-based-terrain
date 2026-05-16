@@ -14,8 +14,7 @@ pub struct LightingEngine{
     pub occlusion_texture: Handle<Texture>,
     tile_storage_texture: Handle<Texture>,
 
-    smooth_vertical_pipeline: Handle<ComputePipeline>,
-    smooth_horizontal_pipeline: Handle<ComputePipeline>,
+    smooth_pipeline: Handle<ComputePipeline>,
     diffuse_pipeline: Handle<ComputePipeline>,
     set_lit_tiles_pipeline: Handle<ComputePipeline>,
     occlusion_pipeline: Handle<ComputePipeline>,
@@ -43,7 +42,7 @@ impl LightingEngine{
                 height: CHUNK_LOAD_DISTANCE as u32*CHUNK_SIZE as u32*2 + CHUNK_SIZE as u32,
                 depth_or_array_layers: 1,
             })
-            .format(Rgba16Float)
+            .format(Rgba8Unorm)
             .usage(TextureUsages::STORAGE_BINDING | TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_SRC | TextureUsages::COPY_DST | TextureUsages::RENDER_ATTACHMENT);
 
         let diffuse_texture_a = diffuse_texture_builder.build(egpu);
@@ -83,7 +82,7 @@ impl LightingEngine{
         let diffuse_builder = ComputePipelineBuilder::new(diffuse_shader)
             .bind_group_layout(&[
                 compute_texture_float(0),
-                storage_texture(1,Rgba16Float),
+                storage_texture(1,Rgba8Unorm),
                 compute_texture_uint(2),
                 compute_uniform(3)
             ])
@@ -115,26 +114,20 @@ impl LightingEngine{
             .storage(3,sky_light)
             .build(egpu);
 
-        let smooth_pipeline_builder = ComputePipelineBuilder::new(smooth_shader)
+        let smooth_pipeline = ComputePipelineBuilder::new(smooth_shader)
             .bind_group_layout(&[
                 compute_texture_float(0),
                 storage_texture(1,TextureFormat::Rgba16Float)
             ])
-            .entry_point("smooth_vertical");
-
-        let smooth_vertical_pipeline = smooth_pipeline_builder
+            .entry_point("smooth_light")
             .build(egpu);
 
-        let smooth_horizontal_pipeline = smooth_pipeline_builder
-            .entry_point("smooth_horizontal")
-            .build(egpu);
-
-        let smooth_bg_a_to_b = ComputeBindGroupBuilder::new(smooth_vertical_pipeline.clone())
+        let smooth_bg_a_to_b = ComputeBindGroupBuilder::new(smooth_pipeline)
             .texture(0,smooth_texture_a)
             .texture(1,smooth_texture_b)
             .build(egpu);
 
-        let smooth_bg_b_to_a = ComputeBindGroupBuilder::new(smooth_vertical_pipeline.clone())
+        let smooth_bg_b_to_a = ComputeBindGroupBuilder::new(smooth_pipeline)
             .texture(0,smooth_texture_b)
             .texture(1,smooth_texture_a)
             .build(egpu);
@@ -183,8 +176,7 @@ impl LightingEngine{
             diffuse_texture_b,
             occlusion_texture,
             tile_storage_texture,
-            smooth_vertical_pipeline,
-            smooth_horizontal_pipeline,
+            smooth_pipeline,
             diffuse_pipeline,
             set_lit_tiles_pipeline,
             occlusion_pipeline,
@@ -235,7 +227,7 @@ impl LightingEngine{
             self.occlusion_pipeline,
             (pixels.0/16, pixels.1/16, pixels.2)
         );
-        for _ in 0..14{
+        for _ in 0..10{
             frame.compute(
                 self.diffuse_bg_a_to_b,
                 self.diffuse_pipeline,
@@ -264,16 +256,16 @@ impl LightingEngine{
             self.upscale_pipeline,
             (pixels.0/16, pixels.1/16, pixels.2)
         );
-        for _ in 0..5{
+        for _ in 0..4{
             frame.compute(
                 self.smooth_bg_a_to_b,
-                self.smooth_vertical_pipeline,
-                (pixels.0, pixels.1/32, pixels.2)
+                self.smooth_pipeline,
+                (pixels.0, pixels.1/16, pixels.2)
             );
             frame.compute(
                 self.smooth_bg_b_to_a,
-                self.smooth_horizontal_pipeline,
-                (pixels.0/32, pixels.1, pixels.2)
+                self.smooth_pipeline,
+                (pixels.0/16, pixels.1, pixels.2)
             );
         }
     }

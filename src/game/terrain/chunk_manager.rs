@@ -5,7 +5,7 @@ use ahash::{AHashMap, AHashSet};
 use easy_gpu::assets::Material;
 use easy_gpu::assets_manager::Handle;
 use easy_gpu::frame::Frame;
-use rayon::iter::{ParallelDrainFull, ParallelDrainRange};
+use rayon::iter::{IntoParallelIterator, ParallelDrainFull, ParallelDrainRange};
 use rayon::prelude::{IntoParallelRefIterator, ParallelIterator, ParallelSlice};
 use crate::engine::file_manager::FileManager;
 use crate::engine::input_manager::InputManager;
@@ -124,19 +124,56 @@ impl ChunkManager{
             return;
         }
 
-        let mut jobs = Vec::new();
+        struct MeshJob<'a> {
+            chunk_pos: ChunkPosition,
+            layer: usize,
+            borders: ChunkBorders,
+            chunk: &'a Chunk,
+        }
 
-        for chunk_pos in self.mesh_load_queue.drain() {
-            if let Some(chunk) = self.chunks.get_mut(&chunk_pos) {
-                let dirty = chunk.dirty;
+        let queued: Vec<_> = self.mesh_load_queue.drain().collect();
+
+        // Store dirty flags BEFORE removing marks
+        let mut dirty_chunks = Vec::new();
+
+        for chunk_pos in &queued {
+            if let Some(chunk) = self.chunks.get(chunk_pos) {
+                dirty_chunks.push((chunk_pos.clone(), chunk.dirty));
+            }
+        }
+
+        // Now clear dirty flags
+        for chunk_pos in &queued {
+            if let Some(chunk) = self.chunks.get_mut(chunk_pos) {
                 chunk.remove_mark();
+            }
+        }
 
-                if dirty[1] {
-                    jobs.push((chunk_pos.clone(), 1));
-                }
-                if dirty[0] {
-                    jobs.push((chunk_pos, 0));
-                }
+        // Build jobs
+        let mut jobs = Vec::<MeshJob>::new();
+
+        for (chunk_pos, dirty) in dirty_chunks {
+            let chunk = match self.chunks.get(&chunk_pos) {
+                Some(chunk) => chunk,
+                None => continue,
+            };
+
+            if dirty[1] {
+                jobs.push(MeshJob {
+                    chunk_pos: chunk_pos.clone(),
+                    layer: 1,
+                    borders: self.chunk_borders(&chunk_pos, 1),
+                    chunk,
+                });
+            }
+
+            if dirty[0] {
+                jobs.push(MeshJob {
+                    chunk_pos: chunk_pos.clone(),
+                    layer: 0,
+                    borders: self.chunk_borders(&chunk_pos, 0),
+                    chunk,
+                });
             }
         }
 
@@ -144,68 +181,118 @@ impl ChunkManager{
             return;
         }
 
+        // Parallel mesh generation
         let generated_meshes: Vec<_> = jobs
-            .par_chunks(4)
-            .flat_map_iter(|chunks| {
-                chunks.iter().filter_map(|(chunk_pos, layer)| {
-                    let chunk = self.chunks.get(chunk_pos)?;
+            .into_par_iter()
+            .filter_map(|job| {
+                let mesh_data = job.chunk.build_mesh(
+                    job.layer,
+                    &job.chunk_pos,
+                    &job.borders,
+                )?;
 
-                    let borders = self.chunk_borders(chunk_pos, *layer);
-                    let mesh_data = chunk.build_mesh(*layer, chunk_pos, borders)?;
-
-                    Some((chunk_pos, *layer, mesh_data))
-                })
+                Some((job.chunk_pos, job.layer, mesh_data))
             })
             .collect();
 
-        for item in generated_meshes.into_iter() {
-            let (chunk_pos, layer, mesh_data) = item;
-                if let Some(chunk) = self.chunks.get_mut(&chunk_pos) {
-                    let mesh = egpu.create_mesh(&mesh_data.0, &mesh_data.1);
-                    chunk.set_mesh(layer, mesh);
-                }
+        // GPU upload
+        for (chunk_pos, layer, mesh_data) in generated_meshes {
+            if let Some(chunk) = self.chunks.get_mut(&chunk_pos) {
+                let mesh = egpu.create_mesh(&mesh_data.0, &mesh_data.1);
 
+                chunk.set_mesh(layer, mesh);
+            }
         }
     }
-    
-    pub fn chunk_borders(&self,chunk_pos: &ChunkPosition, layer: usize) -> ChunkBorders{
-        let mut top = [true;CHUNK_SIZE+2];
-        top.iter_mut().zip((-1..CHUNK_SIZE as i32+1).into_iter()).for_each(|(i,x)| {
-            *i = self.get_tile(
-                chunk_pos.x * CHUNK_SIZE as i32 + x,
-                chunk_pos.y * CHUNK_SIZE as i32 + CHUNK_SIZE as i32,
-                layer
-            ).unwrap().solid();
-        });
 
-        let mut bottom = [true;CHUNK_SIZE+2];
-        bottom.iter_mut().zip((-1..CHUNK_SIZE as i32+1).into_iter()).for_each(|(i,x)| {
-            *i = self.get_tile(
-                chunk_pos.x * CHUNK_SIZE as i32 + x ,
-                chunk_pos.y * CHUNK_SIZE as i32 - 1,
-                layer
-            ).unwrap().solid();
-        });
+    pub fn chunk_borders(
+        &self,
+        chunk_pos: &ChunkPosition,
+        layer: usize,
+    ) -> ChunkBorders {
 
-        let mut left = [true;CHUNK_SIZE];
-        left.iter_mut().zip((0..CHUNK_SIZE as i32).into_iter()).for_each(|(i,y)| {
-            *i = self.get_tile(
-                chunk_pos.x * CHUNK_SIZE as i32 - 1,
-                chunk_pos.y * CHUNK_SIZE as i32 + y,
-                layer
-            ).unwrap().solid();
-        });
+        let north_pos = ChunkPosition::new(chunk_pos.x, chunk_pos.y + 1);
+        let south_pos = ChunkPosition::new(chunk_pos.x, chunk_pos.y - 1);
+        let west_pos  = ChunkPosition::new(chunk_pos.x - 1, chunk_pos.y);
+        let east_pos  = ChunkPosition::new(chunk_pos.x + 1, chunk_pos.y);
 
-        let mut right = [true;CHUNK_SIZE];
-        right.iter_mut().zip((0..CHUNK_SIZE as i32).into_iter()).for_each(|(i,y)| {
-            *i = self.get_tile(
-                chunk_pos.x * CHUNK_SIZE as i32 + CHUNK_SIZE as i32,
-                chunk_pos.y * CHUNK_SIZE as i32 + y,
-                layer
-            ).unwrap().solid();
-        });
+        let north = self.chunks.get(&north_pos);
+        let south = self.chunks.get(&south_pos);
+        let west  = self.chunks.get(&west_pos);
+        let east  = self.chunks.get(&east_pos);
 
-        ChunkBorders{
+        let mut top = [true; CHUNK_SIZE + 2];
+        let mut bottom = [true; CHUNK_SIZE + 2];
+        let mut left = [true; CHUNK_SIZE];
+        let mut right = [true; CHUNK_SIZE];
+
+        // =========================
+        // TOP
+        // =========================
+
+        if let Some(chunk) = north {
+            for x in 0..CHUNK_SIZE {
+                top[x + 1] = chunk
+                    .get_tile(x, 0, layer)
+                    .solid();
+            }
+
+            // corners
+            top[0] = west
+                .map(|c| c.get_tile(CHUNK_SIZE - 1, CHUNK_SIZE - 1, layer).solid())
+                .unwrap_or(true);
+
+            top[CHUNK_SIZE + 1] = east
+                .map(|c| c.get_tile(0, CHUNK_SIZE - 1, layer).solid())
+                .unwrap_or(true);
+        }
+
+        // =========================
+        // BOTTOM
+        // =========================
+
+        if let Some(chunk) = south {
+            for x in 0..CHUNK_SIZE {
+                bottom[x + 1] = chunk
+                    .get_tile(x, CHUNK_SIZE - 1, layer)
+                    .solid();
+            }
+
+            // corners
+            bottom[0] = west
+                .map(|c| c.get_tile(CHUNK_SIZE - 1, 0, layer).solid())
+                .unwrap_or(true);
+
+            bottom[CHUNK_SIZE + 1] = east
+                .map(|c| c.get_tile(0, 0, layer).solid())
+                .unwrap_or(true);
+        }
+
+        // =========================
+        // LEFT
+        // =========================
+
+        if let Some(chunk) = west {
+            for y in 0..CHUNK_SIZE {
+                left[y] = chunk
+                    .get_tile(CHUNK_SIZE - 1, y, layer)
+                    .solid();
+            }
+        }
+
+        // =========================
+        // RIGHT
+        // =========================
+
+        if let Some(chunk) = east {
+            for y in 0..CHUNK_SIZE {
+                right[y] = chunk
+                    .get_tile(0, y, layer)
+                    .solid();
+            }
+        }
+
+        ChunkBorders {
             top,
             bottom,
             left,

@@ -115,7 +115,7 @@ impl Chunk{
         &self,
         layer: usize,
         position: &ChunkPosition,
-        borders: ChunkBorders,
+        borders: &ChunkBorders,
     ) -> Option<(Vec<MeshVertex>, Vec<u16>)> {
         const EXPECTED_QUADS: usize = CHUNK_SIZE * CHUNK_SIZE;
 

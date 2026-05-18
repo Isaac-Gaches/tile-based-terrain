@@ -42,7 +42,7 @@ impl LightingEngine{
                 height: VERTICAL_CHUNK_LOAD_DISTANCE as u32*CHUNK_SIZE as u32*2 + CHUNK_SIZE as u32,
                 depth_or_array_layers: 1,
             })
-            .format(Rgba8Unorm)
+            .format(Rgba16Float)
             .usage(TextureUsages::STORAGE_BINDING | TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_SRC | TextureUsages::COPY_DST | TextureUsages::RENDER_ATTACHMENT);
 
         let diffuse_texture_a = diffuse_texture_builder.build(egpu);
@@ -82,7 +82,7 @@ impl LightingEngine{
         let diffuse_builder = ComputePipelineBuilder::new(diffuse_shader)
             .bind_group_layout(&[
                 compute_texture_float(0),
-                storage_texture(1,Rgba8Unorm),
+                storage_texture(1,Rgba16Float),
                 compute_texture_uint(2),
                 compute_uniform(3)
             ])

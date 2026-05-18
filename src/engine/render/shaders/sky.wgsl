@@ -33,30 +33,25 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     return vec4<f32>(colour,1.0);
 }
 
-fn hash2(p: vec2<f32>) -> vec2<f32> {
-    let x = dot(p, vec2<f32>(127.1, 311.7));
-    let y = dot(p, vec2<f32>(269.5, 183.3));
+fn hash(p: vec2<f32>) -> vec2<f32> {
+    // cheaper hash
+    let p3 = fract(vec3<f32>(p.xyx) * 0.1031);
+    let q = p3 + dot(p3, p3.yzx + 33.33);
 
-    return normalize(
-        fract(sin(vec2<f32>(x, y)) * 43758.5453) * 2.0 - 1.0
-    );
+    return fract((q.xx + q.yz) * q.zy) * 2.0 - 1.0;
 }
 
 fn noise(p: vec2<f32>) -> f32 {
     let i = floor(p);
     let f = fract(p);
 
+    // smooth interpolation
     let u = f * f * (3.0 - 2.0 * f);
 
-    let ga = hash2(i + vec2<f32>(0.0, 0.0));
-    let gb = hash2(i + vec2<f32>(1.0, 0.0));
-    let gc = hash2(i + vec2<f32>(0.0, 1.0));
-    let gd = hash2(i + vec2<f32>(1.0, 1.0));
-
-    let va = dot(ga, f - vec2<f32>(0.0, 0.0));
-    let vb = dot(gb, f - vec2<f32>(1.0, 0.0));
-    let vc = dot(gc, f - vec2<f32>(0.0, 1.0));
-    let vd = dot(gd, f - vec2<f32>(1.0, 1.0));
+    let va = dot(hash(i), f);
+    let vb = dot(hash(i + vec2<f32>(1.0, 0.0)), f - vec2<f32>(1.0, 0.0));
+    let vc = dot(hash(i + vec2<f32>(0.0, 1.0)), f - vec2<f32>(0.0, 1.0));
+    let vd = dot(hash(i + vec2<f32>(1.0, 1.0)), f - vec2<f32>(1.0, 1.0));
 
     return mix(
         mix(va, vb, u.x),
@@ -67,43 +62,54 @@ fn noise(p: vec2<f32>) -> f32 {
 
 fn fbm(p0: vec2<f32>) -> f32 {
     var p = p0;
-    var value = 0.0;
-    var amplitude = 0.5;
 
-    for (var i = 0; i < 3; i++) {
-        value += noise(p) * amplitude;
-        p *= 2.0;
-        amplitude *= 0.5;
-    }
+    // manually unrolled = faster on many laptop GPUs
+    var v = 0.0;
 
-    return value;
+    v += noise(p) * 0.5;
+    p *= 2.0;
+
+    v += noise(p) * 0.25;
+    p *= 2.0;
+
+    v += noise(p) * 0.125;
+
+    return v;
 }
 
 @fragment
 fn nebular_fs(in: VertexOutput) -> @location(0) vec4<f32> {
-    var p = in.uv - vec2<f32>(0.,1.0);
+    let p = in.uv - vec2<f32>(0.0, 1.0);
+    let t = sky.time * 5.0;
 
-    let t = sky.time * 5.;
-
+    // lower warp frequency slightly
     let warp = vec2<f32>(
-        fbm(p * 1.2 + vec2<f32>(t, 0.0)),
-        fbm(p * 1.2 - vec2<f32>(0.0, t))
+        fbm(p + vec2<f32>(t, 0.0)),
+        fbm(p - vec2<f32>(0.0, t))
     );
 
-    let q = p +(warp) * 3.0;
+    let q = p + warp * 2.5;
 
     var n = fbm(q * 2.0);
 
-    let detail = fbm(q * 6.0 + 10.0) * 0.25;
-        n += detail;
+    // cheaper detail layer
+    n += noise(q * 5.0 + 10.0) * 0.18;
 
-    n = smoothstep(0.4, 0.7, n);
+    n = smoothstep(0.42, 0.7, n);
 
-    let color = mix(sky.cloud_edge, sky.cloud_main, pow(n, 3.0));
+    let density = n * n * n;
 
-    let vignette = 1.0 - smoothstep(0.8, 1.2, length(p));
+    let color = mix(
+        sky.cloud_edge,
+        sky.cloud_main,
+        density
+    );
 
-    let alpha = n * vignette * 0.4 /** visibility(sky.time)*/;
+    // avoid expensive length()
+    let vignette =
+        1.0 - smoothstep(0.64, 1.44, dot(p, p));
+
+    let alpha = n * vignette * 0.4;
 
     return vec4<f32>(color * alpha, alpha);
 }

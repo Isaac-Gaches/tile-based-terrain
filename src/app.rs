@@ -78,6 +78,8 @@ impl ApplicationHandler for App{
             }
 
             WindowEvent::RedrawRequested => {
+               // let mut timer = Instant::now();
+
                 let dt = self.last_update_time.elapsed().as_secs_f32();
                 self.last_update_time = Instant::now();
 
@@ -100,8 +102,13 @@ impl ApplicationHandler for App{
                 renderer.sky.draw(frame);
                 self.game.draw(frame);
 
+             //   println!("update: {}",timer.elapsed().as_secs_f32());
+             //   let mut timer = Instant::now();
+
                 frame.sort_by_material();
                 renderer.egpu.render();
+
+             //   println!("render: {}",timer.elapsed().as_secs_f32());
             }
 
             _ => {}

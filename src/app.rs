@@ -51,7 +51,7 @@ impl ApplicationHandler for App{
             renderer.mesh_engine.fg_mesh_material.clone()
         ]);
 
-        self.game.generate_terrain(&mut renderer.egpu, &self.file_manager);
+        self.game.generate_terrain(&mut renderer.egpu, &self.file_manager,&assets);
 
         self.game.spawn_player(&mut renderer);
 
@@ -91,14 +91,16 @@ impl ApplicationHandler for App{
                 self.game.update(&mut renderer.egpu,&self.file_manager,&mut self.input_manager,assets,dt);
                 renderer.update(&self.input_manager, self.game.player_position,dt);
 
-                if self.game.chunk_manager.dirty || self.light_update_timer.elapsed().as_secs_f32() > 0.0{
-                    self.game.extract_lights(&mut renderer.lighting_engine);
-                    renderer.lighting_engine.update(&mut renderer.egpu, self.game.extract_tiles(), self.game.player_position);
+                if self.game.chunk_manager.dirty || self.light_update_timer.elapsed().as_secs_f32() > 0.05{
+                    let mut lights = self.game.extract_lights();
+                    let tiles = self.game.extract_tiles();
+                    lights.extend(tiles.1);
+                    renderer.lighting_engine.update(&mut renderer.egpu, tiles.0, self.game.player_position,lights);
                 }
 
                 let frame = renderer.egpu.begin_frame();
 
-                if self.game.chunk_manager.dirty || self.light_update_timer.elapsed().as_secs_f32() > 0.0{
+                if self.game.chunk_manager.dirty || self.light_update_timer.elapsed().as_secs_f32() > 0.05{
                     renderer.lighting_engine.compute(frame);
                     self.game.chunk_manager.dirty = false;
                     self.light_update_timer = Instant::now();

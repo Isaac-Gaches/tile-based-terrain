@@ -1,12 +1,15 @@
 use easy_gpu::assets::{Material, Mesh};
 use easy_gpu::assets_manager::Handle;
 use easy_gpu::frame::Frame;
+use hecs::World;
 use serde::{Deserialize, Serialize};
-use crate::engine::render::MeshVertex;
+use crate::engine::asset_registry::AssetRegistry;
+use crate::engine::render::{MeshVertex, Sprite};
+use crate::game::physics::transform::Transform;
 use crate::game::terrain::chunk_manager::ChunkBorders;
 use crate::game::terrain::terrain_generator::TerrainGenerator;
 use crate::game::terrain::region::{RegionPosition, REGION_WIDTH};
-use crate::game::terrain::tile::{Tile};
+use crate::game::terrain::tile::{Deco, Tile};
 
 pub const CHUNK_SIZE: usize = 32;
 
@@ -38,21 +41,26 @@ const TILE_TEX_COORDS: [[[f32;2];9];2] = [[ //bg
 #[derive(Serialize,Deserialize)]
 pub struct ChunkData {
     tiles: [Vec<Tile>;2],
+    deco: Vec<Deco>,
 }
+
+
 
 impl ChunkData {
     pub fn new(position: &ChunkPosition,generator: &TerrainGenerator) -> Self{
         let tiles = generator.chunk_tiles(position);
+        let deco = generator.generate_deco(&tiles[1]);
 
         Self{
-            tiles
+            tiles,
+            deco,
         }
     }
 }
 
 pub struct Chunk{
     data: ChunkData,
-    meshes: [Option<Handle<Mesh>>;2],
+    pub meshes: [Option<Handle<Mesh>>;2],
     pub dirty: [bool;2],
     pub save: bool,
 }
@@ -64,6 +72,15 @@ impl Chunk{
             meshes: [None,None],
             dirty: [true;2],
             save: false,
+        }
+    }
+
+    pub fn spawn_deco(&self, world: &mut World,chunk_position: &ChunkPosition, assets: &AssetRegistry){
+        for deco in &self.data.deco{
+            world.spawn((
+                Transform::new([chunk_position.x as f32 * CHUNK_SIZE as f32 + deco.x as f32 ,chunk_position.y as f32 * CHUNK_SIZE as f32 + deco.y as f32 - 0.15],1.0),
+                Sprite::new(assets.natural_deco_mat,0)
+            ));
         }
     }
 

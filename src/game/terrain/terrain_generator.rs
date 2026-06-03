@@ -1,9 +1,11 @@
 use fast_noise_lite_rs::{FastNoiseLite, FractalType, NoiseType};
+use rand::prelude::StdRng;
+use rand::{Rng, SeedableRng};
 use crate::game::terrain::chunk::{CHUNK_SIZE, ChunkPosition};
-use crate::game::terrain::tile::Tile;
+use crate::game::terrain::tile::{Deco, Tile};
 
 pub struct TerrainGenerator{
-    seed: u32,
+    seed: u64,
     pub big_noise: FastNoiseLite,
     pub med_noise: FastNoiseLite,
     pub small_noise: FastNoiseLite,
@@ -114,5 +116,22 @@ impl TerrainGenerator{
         }
 
         tiles
+    }
+
+    pub fn generate_deco(&self, tiles: &Vec<Tile>) -> Vec<Deco>{
+        let mut deco = Vec::with_capacity(64);
+        let mut rng = StdRng::seed_from_u64(self.seed);
+        for x in 0..CHUNK_SIZE {
+            for y in 0..CHUNK_SIZE {
+                if rng.random_bool(0.3) {
+                    if !tiles[x * CHUNK_SIZE + y].solid() {
+                        if y > 0 && tiles[x * CHUNK_SIZE + y - 1].id == 1 {
+                            deco.push(Deco::new(0, x as u8, y as u8))
+                        }
+                    }
+                }
+            }
+        }
+        deco
     }
 }

@@ -94,7 +94,7 @@ impl Sky{
 
         Self{
             light_colour: [1.0,1.0,1.0],
-            time: 0.71,
+            time: 0.7,
             sky_material,
             quad,
             sky_uniform: SkyUniform::new(),

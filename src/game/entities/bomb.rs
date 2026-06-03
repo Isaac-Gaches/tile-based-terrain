@@ -46,7 +46,7 @@ pub fn update_bombs(world: &mut World,dt: f32,terrain: &mut ChunkManager,asset_r
         for i in 0..particles{
             world.spawn((
                 Transform::new(translation,1.0),
-                Collider::new(0.,0.,[0.,0.],random_range(-power*3.0..power*3.0),random_range(-power*3.0..power*3.0),false,0.1),
+                Collider::new(0.,0.,[0.,0.],0.,random_range(-power*3.0..power*3.0),random_range(-power*3.0..power*3.0),false,0.1,0.8),
                 Light::new([0.8,0.5,0.1]),
                 Particle::new(random_range(lifespan/4.0..lifespan)),
                 Sprite::new(asset_registry.particle_mat,0)

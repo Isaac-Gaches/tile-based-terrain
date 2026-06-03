@@ -25,8 +25,8 @@ impl ItemRegistry{
                 projectile_config: ProjectileConfig{
                     bomb: Some(BombConfig{
                         timer: 3.0,
-                        radius: 5,
-                        num_particles: 10,
+                        radius: 8,
+                        num_particles: 40,
                         particle_lifespan: 1.0,
                     }),
                     light: Some(LightConfig{
@@ -39,6 +39,7 @@ impl ItemRegistry{
                     offset: [0.,0.],
                     auto_jump: false,
                     bounce: 0.8,
+                    friction: 0.4,
                 },
             }),
         });
@@ -55,11 +56,12 @@ impl ItemRegistry{
                     }),
                 },
                 collider_config: ColliderConfig{
-                    width: 0.8,
-                    height: 0.8,
+                    width: 0.2,
+                    height: 0.2,
                     offset: [0.,0.],
                     auto_jump: false,
-                    bounce: 0.5,
+                    bounce: 0.7,
+                    friction: 0.7,
                 },
             }),
         });
@@ -72,8 +74,8 @@ impl ItemRegistry{
                 projectile_config: ProjectileConfig{
                     bomb: Some(BombConfig{
                         timer: 5.,
-                        radius: 10,
-                        num_particles: 20,
+                        radius: 16,
+                        num_particles: 80,
                         particle_lifespan: 1.5,
                     }),
                     light: Some(LightConfig{
@@ -85,7 +87,8 @@ impl ItemRegistry{
                     height: 0.8,
                     offset: [0.,0.],
                     auto_jump: false,
-                    bounce: 0.6,
+                    bounce: 0.7,
+                    friction: 0.9,
                 },
             }),
         });
@@ -107,6 +110,7 @@ impl ItemRegistry{
                     offset: [0.,0.],
                     auto_jump: false,
                     bounce: 0.1,
+                    friction: 0.8,
                 },
             }),
         });

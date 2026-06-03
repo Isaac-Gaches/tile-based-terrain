@@ -13,7 +13,8 @@ use crate::game::items::item_registry::ItemRegistry;
 use crate::game::physics::collider::{Collider, update_colliders};
 use crate::game::physics::transform::Transform;
 use crate::game::player::player::{Player, update_player};
-use crate::game::terrain::chunk_manager::ChunkManager;
+use crate::game::terrain::chunk::CHUNK_SIZE;
+use crate::game::terrain::chunk_manager::{ChunkManager, HORIZONTAL_CHUNK_LOAD_DISTANCE, VERTICAL_CHUNK_LOAD_DISTANCE};
 use crate::game::terrain::terrain_generator::TerrainGenerator;
 
 pub struct Game{
@@ -37,12 +38,12 @@ impl Game{
         }
     }
 
-    pub fn generate_terrain(&mut self,egpu: &mut easy_gpu::Renderer, file_manager: &Arc<FileManager>){
+    pub fn generate_terrain(&mut self,egpu: &mut easy_gpu::Renderer, file_manager: &Arc<FileManager>,asset_registry: &AssetRegistry){
         for _ in 0..10 {
             self.chunk_manager.update_data_queue(self.player_position);
             self.chunk_manager.load_chunks_data(file_manager, &self.terrain_generator);
             self.chunk_manager.update_mesh_queue(self.player_position);
-            self.chunk_manager.generate_chunk_meshes(egpu);
+            self.chunk_manager.generate_chunk_meshes(egpu,&mut self.world,asset_registry);
         }
     }
 
@@ -54,8 +55,8 @@ impl Game{
 
         self.world.spawn((
             Player::new(),
-            Collider::new(1.8,1.8,[0.,0.],0.,0.,true,0.),
-            Transform::new([5.,0.],2.0),
+            Collider::new(2.8, 2.8, [0., 0.], 0., 0.,0., true, 0., 0.0),
+            Transform::new([5.,0.],3.0),
             Sprite::new(material, 0),
         ));
 
@@ -67,7 +68,7 @@ impl Game{
         self.chunk_manager.update_data_queue(self.player_position);
         self.chunk_manager.load_chunks_data(file_manager,&self.terrain_generator);
         self.chunk_manager.update_mesh_queue(self.player_position);
-        self.chunk_manager.generate_chunk_meshes(egpu);
+        self.chunk_manager.generate_chunk_meshes(egpu,&mut self.world,asset_registry);
 
         if self.unload_timer.elapsed().as_secs() > 20{
             self.chunk_manager.save_chunks(file_manager);
@@ -79,17 +80,32 @@ impl Game{
         update_bombs(&mut self.world,dt,&mut self.chunk_manager,asset_registry);
         update_particles(&mut self.world,dt);
         self.player_position = update_player(&mut self.world,input_manager,&self.item_registry,dt);
+
+        self.unload_entities();
+    }
+
+    fn unload_entities(&mut self){
+        let mut unload = Vec::new();
+        for (entity,transform) in self.world.query::<&Transform>().iter(){
+            if (transform.translation[0] - self.player_position[0]).abs() > (HORIZONTAL_CHUNK_LOAD_DISTANCE+1) as f32 * CHUNK_SIZE as f32
+                || (transform.translation[1] - self.player_position[1]).abs() > (VERTICAL_CHUNK_LOAD_DISTANCE+1) as f32 * CHUNK_SIZE as f32{
+                unload.push(entity);
+            }
+        }
+        for entity in unload{
+            let _ = self.world.despawn(entity);
+        }
     }
 
     pub fn draw(&self, frame: &mut Frame){
         self.chunk_manager.draw(frame);
     }
 
-    pub fn extract_tiles(&self) -> Vec<u8>{
+    pub fn extract_tiles(&self) -> (Vec<u8>,Vec<LightSource>){
         self.chunk_manager.extract_tiles(self.player_position)
     }
 
-    pub fn extract_lights(&self,lighting_engine: &mut LightingEngine){
+    pub fn extract_lights(&self) -> Vec<LightSource>{
         let mut lights= AHashMap::new();
 
         for (_,(light,transform)) in self.world.query::<(&Light,&Transform)>().iter() {
@@ -104,7 +120,7 @@ impl Game{
                 .or_insert(LightSource::new(transform.translation,light.colour));
         }
 
-        lighting_engine.lights = lights.into_values().collect();
+        lights.into_values().collect()
     }
 }
 

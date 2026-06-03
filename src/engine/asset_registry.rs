@@ -6,6 +6,7 @@ use crate::engine::render::Renderer;
 pub struct AssetRegistry{
     pub throwable_mat: Handle<Material>,
     pub particle_mat: Handle<Material>,
+    pub natural_deco_mat: Handle<Material>,
 }
 
 impl AssetRegistry{
@@ -23,9 +24,16 @@ impl AssetRegistry{
         atlas.add_frame([0.25,0.],[0.5,1.0]);
         let particle_mat = renderer.create_sprite_material(texture,atlas);
 
+        let texture = renderer.egpu.load_texture_from_file(include_bytes!("../../textures/deco.png").to_vec());
+        let mut atlas = renderer.create_atlas();
+        atlas.add_frame([0.0,0.0],[0.2,0.5]);
+        atlas.add_frame([0.2,0.0],[0.4,0.5]);
+        let natural_deco_mat = renderer.create_sprite_material(texture,atlas);
+
         Self{
             throwable_mat,
             particle_mat,
+            natural_deco_mat,
         }
     }
 }

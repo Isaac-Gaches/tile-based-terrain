@@ -11,9 +11,9 @@ pub struct Projectile {
 }
 
 impl Projectile {
-    pub fn add_components(&self,builder: &mut EntityBuilder,x_dir: f32, y_dir:f32,pos: [f32;2]){
+    pub fn add_components(&self,builder: &mut EntityBuilder,angular_vel:f32,x_dir: f32, y_dir:f32,pos: [f32;2]){
         self.projectile_config.add_component(builder);
-        self.collider_config.add_component(x_dir*self.speed,y_dir*self.speed,builder);
+        self.collider_config.add_component(angular_vel,x_dir*self.speed,y_dir*self.speed,builder);
         builder.add(Transform::new(pos,1.0));
     }
 }
@@ -63,11 +63,12 @@ pub struct ColliderConfig{
     pub height: f32,
     pub offset:[f32;2],
     pub auto_jump: bool,
-    pub bounce: f32
+    pub bounce: f32,
+    pub friction: f32,
 }
 impl ColliderConfig{
-    pub fn add_component(&self, x_vel: f32, y_vel: f32,builder: &mut EntityBuilder){
-        builder.add(Collider::new(self.width, self.height, self.offset, x_vel, y_vel, self.auto_jump, self.bounce));
+    pub fn add_component(&self,angular_vel:f32, x_vel: f32, y_vel: f32,builder: &mut EntityBuilder){
+        builder.add(Collider::new(self.width, self.height, self.offset,angular_vel, x_vel, y_vel, self.auto_jump, self.bounce,self.friction));
     }
 }
 

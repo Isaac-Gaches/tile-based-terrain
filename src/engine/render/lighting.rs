@@ -39,7 +39,6 @@ pub struct LightingEngine{
 
     dynamic_lights_meta: Handle<Buffer>,
     lights_buffer: Handle<Buffer>,
-    pub lights: Vec<LightSource>,
     num_lights: u32
 }
 
@@ -241,12 +240,11 @@ impl LightingEngine{
             sky_light,
             dynamic_lights_meta,
             lights_buffer,
-            lights: Vec::new(),
             num_lights: 0,
         }
     }
     
-    pub fn update(&mut self, egpu: &mut easy_gpu::Renderer,tiles: Vec<u8>,player_pos: [f32;2]){
+    pub fn update(&mut self, egpu: &mut easy_gpu::Renderer,tiles: Vec<u8>,player_pos: [f32;2],lights:Vec<LightSource>){
         egpu.write_texture(self.tile_storage_texture,tiles.as_slice(),1,Extent3d{
             width: (HORIZONTAL_CHUNK_LOAD_DISTANCE*CHUNK_SIZE as i32) as u32 * 2+ CHUNK_SIZE as u32,
             height: (VERTICAL_CHUNK_LOAD_DISTANCE*CHUNK_SIZE as i32) as u32 * 2+ CHUNK_SIZE as u32,
@@ -261,14 +259,12 @@ impl LightingEngine{
 
         egpu.write_buffer(self.dynamic_lights_meta,DynamicLightMeta{
             pos: self.light_meta.pos,
-            light_count: self.lights.len() as u32,
+            light_count: lights.len() as u32,
             pad: 0.0,
         });
 
-        egpu.write_array_buffer(self.lights_buffer,self.lights.as_slice());
-        self.num_lights = self.lights.len() as u32;
-
-        self.lights.clear();
+        egpu.write_array_buffer(self.lights_buffer,lights.as_slice());
+        self.num_lights = lights.len() as u32;
     }
 
     pub fn compute(&self, frame: &mut Frame){

@@ -14,6 +14,7 @@ pub struct Player{
     acceleration:f32,
     speed: f32,
     jump_speed:f32,
+    hit_delay: f32,
 }
 
 impl Player{
@@ -22,6 +23,7 @@ impl Player{
             acceleration: 20.0,
             speed: 15.0,
             jump_speed: 20.0,
+            hit_delay: 0.0,
         }
     }
 
@@ -77,7 +79,7 @@ fn throw_projectile(
     if let Some(throwable) = &item.projectile {
         let mut builder = EntityBuilder::new();
 
-        throwable.add_components(&mut builder,dir_x,dir_y,pos);
+        throwable.add_components(&mut builder,dir_x*-20.,dir_x,dir_y,pos);
         builder.add(item.sprite);
 
         world.spawn(builder.build());
@@ -87,15 +89,27 @@ fn throw_projectile(
 
 pub fn update_player(world: &mut World,input_manager: &InputManager,item_registry: &ItemRegistry,dt: f32) -> [f32;2]{
     let mut pos = [0.,0.];
-    for (_, (player, transform,collider)) in world.query::<(&Player, &Transform,&mut Collider)>().iter() {
+    let mut can_hit = false;
+    for (_, (player, transform,collider)) in world.query::<(&mut Player, &Transform,&mut Collider)>().iter() {
         player.move_player(input_manager,collider,dt);
+        if player.hit_delay <= 0.{
+            can_hit = true;
+            if input_manager.left_mouse || input_manager.right_mouse{
+                player.hit_delay = 0.5;
+            }
+        }
+        else{
+            player.hit_delay -= dt;
+        }
         pos = transform.translation;
     }
-    if input_manager.left_mouse{
-        throw_projectile(pos, input_manager.mouse_world_pos, world, item_registry.definitions.get("bomb").unwrap());
-    }
-    if input_manager.right_mouse{
-        throw_projectile(pos, input_manager.mouse_world_pos, world, item_registry.definitions.get("glow_stick").unwrap());
+    if can_hit {
+        if input_manager.left_mouse{
+            throw_projectile(pos, input_manager.mouse_world_pos, world, item_registry.definitions.get("bomb").unwrap());
+        }
+        if input_manager.right_mouse{
+            throw_projectile(pos, input_manager.mouse_world_pos, world, item_registry.definitions.get("glow_stick").unwrap());
+        }
     }
     pos
 }

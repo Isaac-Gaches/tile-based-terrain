@@ -5,13 +5,18 @@ use ahash::{AHashMap, AHashSet};
 use easy_gpu::assets::Material;
 use easy_gpu::assets_manager::Handle;
 use easy_gpu::frame::Frame;
+use hecs::World;
+use rand::random_bool;
 use rayon::iter::{IntoParallelIterator, ParallelDrainFull, ParallelDrainRange};
 use rayon::prelude::{IntoParallelRefIterator, ParallelIterator, ParallelSlice};
+use crate::engine::asset_registry::AssetRegistry;
 use crate::engine::file_manager::FileManager;
 use crate::engine::input_manager::InputManager;
+use crate::engine::render::{LightingEngine, LightSource, Sprite};
+use crate::game::physics::transform::Transform;
 use crate::game::terrain::chunk::{CHUNK_SIZE, ChunkPosition, ChunkData, Chunk};
 use crate::game::terrain::terrain_generator::TerrainGenerator;
-use crate::game::terrain::tile::Tile;
+use crate::game::terrain::tile::{Tile, TILE_LIGHT_SOURCES};
 
 pub struct ChunkManager{
     pub dirty: bool,
@@ -74,7 +79,6 @@ impl ChunkManager{
     }
 
     pub fn update_mesh_queue(&mut self, player_pos: [f32; 2]) {
-
         let mut to_mesh = Vec::new();
 
         for (chunk_pos, chunk) in &mut self.chunks {
@@ -174,7 +178,11 @@ impl ChunkManager{
         self.chunks.extend(loaded_chunks);
     }
 
-    pub fn generate_chunk_meshes(&mut self, egpu: &mut easy_gpu::Renderer) {
+    pub fn generate_chunk_meshes(
+        &mut self, egpu: &mut easy_gpu::Renderer,
+        world: &mut World,
+        asset_registry: &AssetRegistry
+    ) {
         if self.mesh_load_queue.is_empty() {
             return;
         }
@@ -230,23 +238,29 @@ impl ChunkManager{
 
         let generated_meshes: Vec<_> = jobs
             .into_par_iter()
-            .filter_map(|job| {
+            .map(|job| {
                 let mesh_data = job.chunk.build_mesh(
                     job.layer,
                     &job.chunk_pos,
                     &job.borders,
-                )?;
+                );
 
-                Some((job.chunk_pos, job.layer, mesh_data))
+                (job.chunk_pos, job.layer, mesh_data)
             })
             .collect();
 
         for (chunk_pos, layer, mesh_data) in generated_meshes {
             if let Some(chunk) = self.chunks.get_mut(&chunk_pos) {
-                let mesh = egpu.create_mesh(&mesh_data.0, &mesh_data.1);
-
-                chunk.set_mesh(layer, mesh);
+                if let Some(data) = mesh_data{
+                    let mesh = egpu.create_mesh(&data.0, &data.1);
+                    chunk.set_mesh(layer, mesh);
+                }
+                else{
+                    chunk.meshes[layer] = None;
+                }
+                chunk.spawn_deco(world,&chunk_pos,asset_registry)
             }
+
         }
     }
 
@@ -356,7 +370,7 @@ impl ChunkManager{
         None
     }
 
-    pub fn extract_tiles(&self, player_pos: [f32; 2]) -> Vec<u8> {
+    pub fn extract_tiles(&self, player_pos: [f32; 2]) ->(Vec<u8>,Vec<LightSource>) {
         let chunk_size = CHUNK_SIZE as i32;
 
         let chunk_radius_x = HORIZONTAL_CHUNK_LOAD_DISTANCE;
@@ -369,6 +383,7 @@ impl ChunkManager{
         let height_tiles = height_chunks * chunk_size;
 
         let mut tiles = vec![1u8; (width_tiles * height_tiles) as usize];
+        let mut lights = Vec::with_capacity(64);
 
         let player_chunk_x =
             player_pos[0].div_euclid(chunk_size as f32) as i32;
@@ -402,6 +417,10 @@ impl ChunkManager{
                         let fg = chunk.get_tile(x, y, 1).id;
                         let bg = chunk.get_tile(x, y, 0).id;
 
+                        if fg > 0 && let Some(light) = TILE_LIGHT_SOURCES[(fg-1) as usize]{
+                            lights.push(LightSource::new([chunk_pos.x as f32 * CHUNK_SIZE as f32 + x as f32 - 0.5,chunk_pos.y as f32 * CHUNK_SIZE as f32  + y as f32- 0.5],light))
+                        }
+
                         let value = if fg == 0 {
                             if bg == 0 {
                                 0
@@ -418,7 +437,7 @@ impl ChunkManager{
             }
         }
 
-        tiles
+        (tiles,lights)
     }
 
     fn set_tile(&mut self, x:i32, y:i32,id:u8,layer:usize){
@@ -434,10 +453,10 @@ impl ChunkManager{
                 let x = x.rem_euclid(CHUNK_SIZE as i32) as usize;
                 let y = y.rem_euclid(CHUNK_SIZE as i32) as usize;
 
-                if x == 0{adj_chunks[0] = -1;}
-                else if x == CHUNK_SIZE-1{adj_chunks[0] = 1;}
-                if y == 0{adj_chunks[1] = -1;}
-                else if y == CHUNK_SIZE-1{adj_chunks[1] = 1;}
+                if x == 0 { adj_chunks[0] = -1; }
+                else if x == CHUNK_SIZE-1 { adj_chunks[0] = 1; }
+                if y == 0 { adj_chunks[1] = -1; }
+                else if y == CHUNK_SIZE-1 { adj_chunks[1] = 1; }
 
                 chunk.set_tile(x,y,id,layer);
             }

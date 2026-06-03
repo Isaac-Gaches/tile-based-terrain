@@ -1,4 +1,5 @@
 use hecs::World;
+use rand::random_range;
 use crate::game::physics::transform::Transform;
 use crate::game::terrain::chunk_manager::ChunkManager;
 
@@ -17,11 +18,13 @@ pub struct Collider{
     pub on_ground:bool,
     auto_jump:bool,
     bounce: f32,
+    friction: f32,
+    pub angular_vel: f32
 }
 
 impl Collider{
 
-    pub fn new(width: f32, height: f32, offset:[f32;2],x_vel: f32,y_vel: f32, auto_jump: bool,bounce: f32) -> Self{
+    pub fn new(width: f32, height: f32, offset:[f32;2],angular_vel: f32,x_vel: f32,y_vel: f32, auto_jump: bool,bounce: f32,friction: f32) -> Self{
         Self{
             left: -(width/2.) - offset[0],
             right: (width/2.) - offset[0],
@@ -32,11 +35,15 @@ impl Collider{
             on_ground: false,
             auto_jump,
             bounce,
+            friction,
+            angular_vel,
         }
     }
     pub fn handle_collider(&mut self,transform: &mut Transform,terrain: &ChunkManager,dt: f32){
         //velocity update
         self.y_vel -= GRAVITY * dt;
+        transform.rotation += self.angular_vel * dt;
+        self.angular_vel *= 1.0 - 2. * dt;
         if self.y_vel < -TERMINAL_VELOCITY { self.y_vel = -TERMINAL_VELOCITY; }
         //sub steps
         let x_vel = (self.x_vel*dt)/SUB_STEPS;
@@ -57,11 +64,13 @@ impl Collider{
                 for y in (bottom..=top).rev(){
                     if terrain.get_tile(x,y,1).unwrap().id != 0{
                         if self.auto_jump && y == bottom && (left.min(right)..=right.max(left)).find(|i|{ terrain.get_tile(*i,top+1,1).unwrap().id != 0 }).is_none(){
-                            transform.translation[1] += 1.;
+                            transform.translation[1] = (transform.translation[1]+1.0).floor();
                         }
                         else{
                             transform.translation = origin;
                             self.x_vel = -self.x_vel * self.bounce;
+                            self.y_vel -= self.y_vel * self.friction * dt;
+                            self.angular_vel += self.x_vel * self.bounce * random_range(-1.0..1.0);
                         }
                         break 'outer;
                     }
@@ -82,7 +91,9 @@ impl Collider{
                     if terrain.get_tile(x,y,1).unwrap().id != 0{
 
                         transform.translation = origin;
+                        self.angular_vel += self.y_vel * self.bounce * random_range(-1.0..1.0);
                         self.y_vel = -self.y_vel * self.bounce;
+                        self.x_vel -= self.x_vel * self.friction * dt ;
                         if y == bottom{ self.on_ground = true; }
 
                         break 'outer;

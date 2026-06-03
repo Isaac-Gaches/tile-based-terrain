@@ -59,16 +59,39 @@ fn vs_main(
 ) -> VertexOutput {
     var out: VertexOutput;
 
+    let local_pos = vertex.position.xy * instance.scale;
+
+    let c = cos(instance.rotation);
+    let s = sin(instance.rotation);
+
+    let rotated_pos = vec2<f32>(
+        local_pos.x * c - local_pos.y * s,
+        local_pos.x * s + local_pos.y * c
+    );
+
+    let world_pos = instance.position + rotated_pos;
+
     out.light_tex_coord = vec2<f32>(
-        (instance.position.x + vertex.position.x * instance.scale + 0.5 + light_meta.h_render_distance - light_meta.position.x)/(light_meta.h_render_distance*2.+light_meta.chunk_size),
-        1.0-(instance.position.y + vertex.position.y  * instance.scale - 0.5 + light_meta.v_render_distance - light_meta.position.y)/(light_meta.v_render_distance*2.+light_meta.chunk_size)
+        (world_pos.x + 0.5 + light_meta.h_render_distance - light_meta.position.x)
+            / (light_meta.h_render_distance * 2.0 + light_meta.chunk_size),
+        1.0 - (
+            world_pos.y - 0.5 + light_meta.v_render_distance - light_meta.position.y
+        ) / (light_meta.v_render_distance * 2.0 + light_meta.chunk_size)
     );
 
     let frame = atlas[instance.tex_index];
-    let quad_uv = (vertex.position.xy * vec2<f32>(1.0,-1.0) + vec2<f32>(0.5,0.5));
+    let quad_uv = vertex.position.xy * vec2<f32>(1.0, -1.0) + vec2<f32>(0.5, 0.5);
     out.sprite_uv = frame.min_uv + quad_uv * (frame.max_uv - frame.min_uv);
 
-    out.clip_position = vec4<f32>((vec3<f32>(instance.position,0.) + (vertex.position * vec3<f32>(instance.scale,instance.scale,1.0)) - vec3<f32>(camera.position,0.)) * vec3<f32>(camera.zoom,camera.zoom,1.0) * vec3<f32>(1.0,camera.ratio,1.0),1.0);
+    out.clip_position = vec4<f32>(
+        (
+            vec3<f32>(world_pos, 0.0)
+            - vec3<f32>(camera.position, 0.0)
+        )
+        * vec3<f32>(camera.zoom, camera.zoom, 1.0)
+        * vec3<f32>(1.0, camera.ratio, 1.0),
+        1.0
+    );
 
     return out;
 }

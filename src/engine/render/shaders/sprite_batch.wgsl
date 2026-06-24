@@ -3,7 +3,7 @@ struct VertexInput {
 };
 
 struct InstanceInput {
-    @location(1) position: vec2<f32>,
+    @location(1) position: vec3<f32>,
     @location(2) rotation: f32,
     @location(3) scale: f32,
     @location(4) tex_index: u32,
@@ -69,7 +69,7 @@ fn vs_main(
         local_pos.x * s + local_pos.y * c
     );
 
-    let world_pos = instance.position + rotated_pos;
+    let world_pos = instance.position.xy + rotated_pos;
 
     out.light_tex_coord = vec2<f32>(
         (world_pos.x + 0.5 + light_meta.h_render_distance - light_meta.position.x)
@@ -85,7 +85,7 @@ fn vs_main(
 
     out.clip_position = vec4<f32>(
         (
-            vec3<f32>(world_pos, 0.0)
+            vec3<f32>(world_pos, instance.position.z)
             - vec3<f32>(camera.position, 0.0)
         )
         * vec3<f32>(camera.zoom, camera.zoom, 1.0)

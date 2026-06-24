@@ -1,7 +1,7 @@
 @group(0) @binding(0)
 var inputTex: texture_2d<f32>;
 @group(0) @binding(1)
-var outputTex: texture_storage_2d<rgba16float, write>;
+var outputTex: texture_storage_2d<rgba8unorm, write>;
 @group(0) @binding(2)
 var tiles: texture_2d<u32>;
 
@@ -34,23 +34,14 @@ fn diffuse_light(@builtin(global_invocation_id) gid : vec3<u32>) {
         return;
     }
 
-    let decay = 0.8;
-    let diagDecay = decay * 0.85;
+    let decay = 0.85;
 
     let l = loadClamped(uv + vec2(-1,  0), size) * decay;
     let r = loadClamped(uv + vec2( 1,  0), size) * decay;
     let u = loadClamped(uv + vec2( 0,  1), size) * decay;
     let d = loadClamped(uv + vec2( 0, -1), size) * decay;
 
-    let ul = loadClamped(uv + vec2(-1,  1), size) * diagDecay;
-    let ur = loadClamped(uv + vec2( 1,  1), size) * diagDecay;
-    let dl = loadClamped(uv + vec2(-1, -1), size) * diagDecay;
-    let dr = loadClamped(uv + vec2( 1, -1), size) * diagDecay;
-
-    let propagated = max(
-        max(max(l, r), max(u, d)),
-        max(max(ul, ur), max(dl, dr))
-    );
+    let propagated = max(max(l, r), max(u, d));
 
     textureStore(
         outputTex,

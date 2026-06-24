@@ -16,6 +16,7 @@ pub struct InputManager{
     pub right: bool,
     pub plus: bool,
     pub minus: bool,
+    pub nums: [bool;10]
 }
 
 impl InputManager {
@@ -28,6 +29,16 @@ impl InputManager {
                 Key::Character("d") => self.right = true,
                 Key::Character("=") => self.plus = true,
                 Key::Character("-") => self.minus = true,
+                Key::Character("0") => self.nums[0] = true,
+                Key::Character("1") => self.nums[1] = true,
+                Key::Character("2") => self.nums[2] = true,
+                Key::Character("3") => self.nums[3] = true,
+                Key::Character("4") => self.nums[4] = true,
+                Key::Character("5") => self.nums[5] = true,
+                Key::Character("6") => self.nums[6] = true,
+                Key::Character("7") => self.nums[7] = true,
+                Key::Character("8") => self.nums[8] = true,
+                Key::Character("9") => self.nums[9] = true,
                 _ => (),
             }
         }
@@ -39,6 +50,16 @@ impl InputManager {
                 Key::Character("d") => self.right = false,
                 Key::Character("=") => self.plus = false,
                 Key::Character("-") => self.minus = false,
+                Key::Character("0") => self.nums[0] = false,
+                Key::Character("1") => self.nums[1] = false,
+                Key::Character("2") => self.nums[2] = false,
+                Key::Character("3") => self.nums[3] = false,
+                Key::Character("4") => self.nums[4] = false,
+                Key::Character("5") => self.nums[5] = false,
+                Key::Character("6") => self.nums[6] = false,
+                Key::Character("7") => self.nums[7] = false,
+                Key::Character("8") => self.nums[8] = false,
+                Key::Character("9") => self.nums[9] = false,
                 _ => (),
             }
         }

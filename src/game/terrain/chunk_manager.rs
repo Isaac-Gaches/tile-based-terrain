@@ -1,19 +1,16 @@
-use std::collections::{HashMap, HashSet};
-use std::sync::{Arc, Mutex};
-use std::time::Instant;
+
+use std::sync::{Arc};
 use ahash::{AHashMap, AHashSet};
 use easy_gpu::assets::Material;
 use easy_gpu::assets_manager::Handle;
 use easy_gpu::frame::Frame;
-use hecs::World;
-use rand::random_bool;
-use rayon::iter::{IntoParallelIterator, ParallelDrainFull, ParallelDrainRange};
-use rayon::prelude::{IntoParallelRefIterator, ParallelIterator, ParallelSlice};
+use hecs::{Entity, World};
+use rayon::iter::{IntoParallelIterator};
+use rayon::prelude::{IntoParallelRefIterator, ParallelIterator};
 use crate::engine::asset_registry::AssetRegistry;
 use crate::engine::file_manager::FileManager;
 use crate::engine::input_manager::InputManager;
-use crate::engine::render::{LightingEngine, LightSource, Sprite};
-use crate::game::physics::transform::Transform;
+use crate::engine::render::{LightSource};
 use crate::game::terrain::chunk::{CHUNK_SIZE, ChunkPosition, ChunkData, Chunk};
 use crate::game::terrain::terrain_generator::TerrainGenerator;
 use crate::game::terrain::tile::{Tile, TILE_LIGHT_SOURCES};
@@ -21,12 +18,11 @@ use crate::game::terrain::tile::{Tile, TILE_LIGHT_SOURCES};
 pub struct ChunkManager{
     pub dirty: bool,
     chunks: AHashMap<ChunkPosition,Chunk>,
-    data_load_queue: Vec<ChunkPosition>,
-    mesh_load_queue: Vec<ChunkPosition>,
-    mesh_materials: Vec<Handle<Material>>
+    data_load_queue: AHashSet<ChunkPosition>,
+    mesh_load_queue: AHashSet<ChunkPosition>,
 }
-pub const HORIZONTAL_CHUNK_LOAD_DISTANCE: i32 = 3;
-pub const VERTICAL_CHUNK_LOAD_DISTANCE: i32 = 2;
+pub const HORIZONTAL_CHUNK_LOAD_DISTANCE: i32 = 5;
+pub const VERTICAL_CHUNK_LOAD_DISTANCE: i32 = 3;
 
 
 impl ChunkManager{
@@ -34,15 +30,12 @@ impl ChunkManager{
         Self{
             dirty: false,
             chunks: AHashMap::new(),
-            data_load_queue: Vec::new(),
-            mesh_load_queue: Vec::new(),
-            mesh_materials: vec![],
+            data_load_queue: AHashSet::new(),
+            mesh_load_queue: AHashSet::new(),
         }
     }
-    pub fn set_mesh_materials(&mut self,materials: Vec<Handle<Material>>){
-        self.mesh_materials = materials;
-    }
-    pub fn unload_chunks(&mut self,player_pos: [f32;2]){
+
+    pub fn unload_chunks(&mut self,player_pos: [f32;2],world: &mut World){
         let mut unload = Vec::new();
         
         for chunk_pos in self.chunks.keys(){
@@ -55,7 +48,10 @@ impl ChunkManager{
         }
         
         for key in &unload{
-            self.chunks.remove(key);
+            let chunk = self.chunks.remove(key);
+            if let Some(chunk) = chunk{
+                chunk.despawn_deco(world);
+            }
         }
     }
 
@@ -72,7 +68,7 @@ impl ChunkManager{
                 );
 
                 if !self.chunks.contains_key(&chunk_pos){
-                    self.data_load_queue.push(chunk_pos);
+                    self.data_load_queue.insert(chunk_pos);
                 }
             }
         }
@@ -98,7 +94,7 @@ impl ChunkManager{
                 || y_dist >= VERTICAL_CHUNK_LOAD_DISTANCE as f32 * CHUNK_SIZE as f32
             {
                 if x_dist >= (HORIZONTAL_CHUNK_LOAD_DISTANCE+1) as f32 * CHUNK_SIZE as f32
-                    || y_dist >= (HORIZONTAL_CHUNK_LOAD_DISTANCE+1) as f32 * CHUNK_SIZE as f32
+                    || y_dist >= (VERTICAL_CHUNK_LOAD_DISTANCE+1) as f32 * CHUNK_SIZE as f32
                 {
                     if chunk.has_mesh() {
                         chunk.destroy_mesh();
@@ -112,10 +108,12 @@ impl ChunkManager{
 
         for chunk_pos in to_mesh {
             if self.can_mesh_chunk(&chunk_pos) {
-                self.mesh_load_queue.push(chunk_pos);
+                self.mesh_load_queue.insert(chunk_pos);
                 self.dirty = true;
             }
         }
+
+
     }
 
     pub fn can_mesh_chunk(&self, chunk_pos: &ChunkPosition) -> bool {
@@ -147,16 +145,23 @@ impl ChunkManager{
             return;
         }
 
-        const MAX_LOADS_PER_FRAME: usize = 4;
+        const BUDGET: usize = 8;
 
         let queued: Vec<_> = self
             .data_load_queue
-            .drain(0..MAX_LOADS_PER_FRAME.min(self.data_load_queue.len()))
+            .iter()
+            .take(BUDGET)
+            .cloned()
             .collect();
 
         if queued.is_empty() {
             return;
         }
+
+        for item in queued.iter() {
+            self.data_load_queue.take(item);
+        }
+
 
         let loaded_chunks: Vec<_> = queued
             .into_par_iter()
@@ -194,7 +199,18 @@ impl ChunkManager{
             chunk: &'a Chunk,
         }
 
-        let queued: Vec<_> = self.mesh_load_queue.drain(..).collect();
+        const BUDGET: usize = 3;
+
+        let queued: Vec<_> = self
+            .mesh_load_queue
+            .iter()
+            .take(BUDGET)
+            .cloned()
+            .collect();
+
+        for item in queued.iter() {
+            self.mesh_load_queue.take(item);
+        }
 
         let mut dirty_chunks = Vec::new();
 
@@ -254,11 +270,11 @@ impl ChunkManager{
                 if let Some(data) = mesh_data{
                     let mesh = egpu.create_mesh(&data.0, &data.1);
                     chunk.set_mesh(layer, mesh);
+                    chunk.spawn_deco(world,&chunk_pos,asset_registry)
                 }
                 else{
                     chunk.meshes[layer] = None;
                 }
-                chunk.spawn_deco(world,&chunk_pos,asset_registry)
             }
 
         }
@@ -355,9 +371,9 @@ impl ChunkManager{
             });
     }
 
-    pub fn draw(&self, frame: &mut Frame){
+    pub fn draw(&self, frame: &mut Frame,asset_registry: &AssetRegistry){
         for (_,chunk) in &self.chunks{
-            chunk.draw(frame,&self.mesh_materials);
+            chunk.draw(frame,asset_registry);
         }
     }
 
@@ -368,6 +384,22 @@ impl ChunkManager{
             return Some(chunk.get_tile(x,y,layer));
         }
         None
+    }
+
+    pub fn get_deco(&self,x:i32,y:i32) -> Option<&Entity>{
+        let chunk_pos = ChunkPosition::from_world_space(x,y);
+        if let Some(chunk) = self.chunks.get(&chunk_pos){
+            return chunk.get_deco(x,y);
+        }
+        None
+    }
+
+    pub fn remove_deco(&mut self,x:i32,y:i32){
+        let chunk_pos = ChunkPosition::from_world_space(x,y);
+        if let Some(chunk) = self.chunks.get_mut(&chunk_pos){
+            chunk.remove_deco(x,y);
+        }
+
     }
 
     pub fn extract_tiles(&self, player_pos: [f32; 2]) ->(Vec<u8>,Vec<LightSource>) {
@@ -418,7 +450,7 @@ impl ChunkManager{
                         let bg = chunk.get_tile(x, y, 0).id;
 
                         if fg > 0 && let Some(light) = TILE_LIGHT_SOURCES[(fg-1) as usize]{
-                            lights.push(LightSource::new([chunk_pos.x as f32 * CHUNK_SIZE as f32 + x as f32 - 0.5,chunk_pos.y as f32 * CHUNK_SIZE as f32  + y as f32- 0.5],light))
+                            lights.push(LightSource::new([chunk_pos.x as f32 * CHUNK_SIZE as f32 + x as f32 ,chunk_pos.y as f32 * CHUNK_SIZE as f32  + y as f32],light))
                         }
 
                         let value = if fg == 0 {
@@ -440,7 +472,7 @@ impl ChunkManager{
         (tiles,lights)
     }
 
-    fn set_tile(&mut self, x:i32, y:i32,id:u8,layer:usize){
+    pub fn set_tile(&mut self, x:i32, y:i32,id:u8,layer:usize){
         let mut key = ChunkPosition::new(
             (x as f32/CHUNK_SIZE as f32).floor() as i32,
             (y as f32/CHUNK_SIZE as f32).floor() as i32
@@ -500,18 +532,6 @@ impl ChunkManager{
                     self.set_tile(x+i,y+j,0,1);
                 }
             }
-        }
-    }
-
-    pub fn handle_input(&mut self, input: &InputManager){
-        let x = input.mouse_world_pos[0].floor() as i32;
-        let y = input.mouse_world_pos[1].floor() as i32;
-
-        if input.right_mouse{
-            self.set_tile(x,y,0,1);
-        }
-        else if input.left_mouse{
-            self.set_tile(x,y,4,1);
         }
     }
 }

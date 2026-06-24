@@ -66,6 +66,6 @@ fn fs_fg_tiles(in: VertexOutput) -> @location(0) vec4<f32> {
 fn fs_bg_tiles(in: VertexOutput) -> @location(0) vec4<f32> {
     let tex = textureSample(tile_texture, tile_sampler, in.tile_tex_coord);
     if tex.a== 0.{discard;}
-    let light = textureSample(light_texture, light_sampler, in.light_tex_coord) * 0.3 * max(textureSample(occlusion_texture, light_sampler, in.light_tex_coord).r,0.5);
+    let light = textureSample(light_texture, light_sampler, in.light_tex_coord) * 0.2 * max(textureSample(occlusion_texture, light_sampler, in.light_tex_coord).r,0.5);
     return tex * light;
 }

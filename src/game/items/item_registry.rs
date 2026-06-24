@@ -1,8 +1,11 @@
 use ahash::AHashMap;
 use crate::engine::asset_registry::AssetRegistry;
+use crate::engine::render::gui::GuiElement;
 use crate::engine::render::Sprite;
 use crate::game::items::definition::ItemDefinition;
+use crate::game::items::placeable::{TileConfig, Placeable, EntityConfig};
 use crate::game::items::projectile::{BombConfig, ColliderConfig, ProjectileConfig, Projectile, LightConfig};
+use crate::game::terrain::tile::Tile;
 
 pub struct ItemRegistry{
     pub definitions: AHashMap<ItemID,ItemDefinition>,
@@ -20,6 +23,7 @@ impl ItemRegistry{
         self.definitions.insert("bomb".to_string(),ItemDefinition{
             name: "Bomb".to_string(),
             sprite: Sprite::new(asset_registry.throwable_mat,0),
+            icon_index: 0,
             projectile: Some(Projectile {
                 speed: 40.0,
                 projectile_config: ProjectileConfig{
@@ -42,17 +46,19 @@ impl ItemRegistry{
                     friction: 0.4,
                 },
             }),
+            placeable: None,
         });
 
         self.definitions.insert("glow_stick".to_string(),ItemDefinition{
             name: "Glow Stick".to_string(),
             sprite: Sprite::new(asset_registry.throwable_mat,1),
+            icon_index: 1,
             projectile: Some(Projectile {
                 speed: 50.0,
                 projectile_config: ProjectileConfig{
                     bomb: None,
                     light: Some(LightConfig{
-                        colour: [0.4,1.0,0.2],
+                        colour: [0.7,1.0,0.1],
                     }),
                 },
                 collider_config: ColliderConfig{
@@ -64,11 +70,13 @@ impl ItemRegistry{
                     friction: 0.7,
                 },
             }),
+            placeable: None,
         });
 
         self.definitions.insert("big_bomb".to_string(),ItemDefinition{
             name: "Big Bomb".to_string(),
             sprite: Sprite::new(asset_registry.throwable_mat,2),
+            icon_index: 2,
             projectile: Some(Projectile {
                 speed: 30.0,
                 projectile_config: ProjectileConfig{
@@ -91,11 +99,13 @@ impl ItemRegistry{
                     friction: 0.9,
                 },
             }),
+            placeable: None,
         });
 
         self.definitions.insert("potion".to_string(),ItemDefinition{
             name: "Potion".to_string(),
             sprite: Sprite::new(asset_registry.throwable_mat,3),
+            icon_index: 3,
             projectile: Some(Projectile {
                 speed: 40.0,
                 projectile_config: ProjectileConfig{
@@ -113,6 +123,26 @@ impl ItemRegistry{
                     friction: 0.8,
                 },
             }),
+            placeable: None,
+        });
+
+        self.definitions.insert("dirt".to_string(),ItemDefinition{
+            name: "Dirt".to_string(),
+            sprite: Sprite::new(asset_registry.throwable_mat,3),//needs to change
+            icon_index: 5,
+            projectile: None,
+            placeable: Some(Placeable::Tile(TileConfig {
+                id: 3,
+            })),
+        });
+        self.definitions.insert("red_light".to_string(),ItemDefinition{
+            name: "Red Light".to_string(),
+            sprite: Sprite::new(asset_registry.throwable_mat,3),//needs to change
+            icon_index: 4,
+            projectile: None,
+            placeable: Some(Placeable::Tile(TileConfig {
+                id: 4,
+            })),
         });
     }
 }

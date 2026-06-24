@@ -1,5 +1,5 @@
 pub mod terrain_generator;
 pub mod chunk;
 pub mod chunk_manager;
-mod tile;
+pub mod tile;
 mod region;

@@ -18,7 +18,7 @@ impl Projectile {
     }
 }
 
-pub struct  ProjectileConfig{
+pub struct ProjectileConfig{
     pub bomb: Option<BombConfig>,
     pub light: Option<LightConfig>
 }

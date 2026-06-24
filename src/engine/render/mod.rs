@@ -7,6 +7,7 @@ mod lighting;
 mod mesh;
 mod sprite_batch;
 mod sky;
+pub mod gui;
 
 pub use mesh::MeshVertex;
 pub use lighting::{Light,LightSource,LightingEngine};

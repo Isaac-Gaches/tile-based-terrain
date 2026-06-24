@@ -7,13 +7,15 @@ use winit::window::{Window, WindowId};
 use crate::engine::asset_registry::AssetRegistry;
 use crate::engine::file_manager::FileManager;
 use crate::engine::input_manager::InputManager;
-use crate::engine::render::Renderer;
+use crate::engine::render::{Renderer, Sprite};
 use crate::game::game::Game;
+use crate::game::physics::transform::Transform;
+use crate::game::player::player::spawn_player;
 
 pub struct App{
     window: Option<Arc<Window>>,
     renderer: Option<Renderer>,
-    assets: Option<AssetRegistry>,
+    asset_registry: Option<AssetRegistry>,
     file_manager: Arc<FileManager>,
     input_manager: InputManager,
     game: Game,
@@ -26,7 +28,7 @@ impl App{
         Self{
             window: None,
             renderer: None,
-            assets: None,
+            asset_registry: None,
             file_manager: Arc::new(FileManager::new()),
             input_manager: Default::default(),
             game: Game::new(),
@@ -43,26 +45,20 @@ impl ApplicationHandler for App{
             .expect("Failed to create window"));
 
         let mut renderer = Renderer::new(window.clone());
-        let assets = AssetRegistry::new(&mut renderer);
-        self.game.item_registry.load(&assets);
+        let assets_registry = AssetRegistry::new(&mut renderer);
+        self.game.item_registry.load(&assets_registry);
 
-        self.game.chunk_manager.set_mesh_materials(vec![
-            renderer.mesh_engine.bg_mesh_material.clone(),
-            renderer.mesh_engine.fg_mesh_material.clone()
-        ]);
-
-        self.game.generate_terrain(&mut renderer.egpu, &self.file_manager,&assets);
-
-        self.game.spawn_player(&mut renderer);
+        self.game.begin_world(&mut renderer, &self.file_manager,&assets_registry);
 
         self.window = Some(window);
         self.renderer = Some(renderer);
-        self.assets = Some(assets);
+        self.asset_registry = Some(assets_registry);
     }
 
+    #[profiling::function]
     fn window_event(&mut self, event_loop: &ActiveEventLoop, _window_id: WindowId, event: WindowEvent)  {
         let renderer = self.renderer.as_mut().unwrap();
-        let assets = self.assets.as_mut().unwrap();
+        let asset_registry = self.asset_registry.as_mut().unwrap();
 
         match event {
             WindowEvent::KeyboardInput { event, .. } => {
@@ -85,34 +81,40 @@ impl ApplicationHandler for App{
             }
 
             WindowEvent::RedrawRequested => {
+                profiling::scope!("frame");
+
                 let dt = self.last_update_time.elapsed().as_secs_f32();
                 self.last_update_time = Instant::now();
 
-                self.game.update(&mut renderer.egpu,&self.file_manager,&mut self.input_manager,assets,dt);
-                renderer.update(&self.input_manager, self.game.player_position,dt);
+                self.game.update(&mut renderer.egpu, &self.file_manager, &mut self.input_manager, asset_registry, dt);
 
-                if self.game.chunk_manager.dirty || self.light_update_timer.elapsed().as_secs_f32() > 0.05{
-                    let mut lights = self.game.extract_lights();
-                    let tiles = self.game.extract_tiles();
-                    lights.extend(tiles.1);
-                    renderer.lighting_engine.update(&mut renderer.egpu, tiles.0, self.game.player_position,lights);
-                }
+                renderer.update_camera(&self.input_manager, self.game.player_position,dt);
+                renderer.update_sky(dt);
 
-                let frame = renderer.egpu.begin_frame();
+                renderer.new_frame();
 
-                if self.game.chunk_manager.dirty || self.light_update_timer.elapsed().as_secs_f32() > 0.05{
-                    renderer.lighting_engine.compute(frame);
-                    self.game.chunk_manager.dirty = false;
+                if self.game.chunk_manager.dirty || self.light_update_timer.elapsed().as_secs_f32() >= 0.06 {
                     self.light_update_timer = Instant::now();
+                    self.game.chunk_manager.dirty = false;
+
+                    let mut lights = self.game.extract_lights();
+                    let (tiles,lit_tiles) = self.game.extract_tiles();
+                    lights.extend(lit_tiles);
+                    
+                    renderer.update_tile_buffers(tiles);
+                    renderer.update_light_buffers(lights,self.game.player_position);
+                    renderer.compute_lightmap();
                 }
+                
+                renderer.draw_sky();
+                renderer.draw_ecs_sprites(&self.game.world);
+                self.game.draw_terrain(renderer.egpu.current_frame(),asset_registry);
+                self.game.add_gui(&mut renderer.gui_engine,asset_registry);
+                renderer.draw_gui();
 
-                renderer.sky.draw(frame);
-                renderer.sprite_batch_engine.draw_sprites(frame,&self.game.world);
-                self.game.draw(frame);
+                renderer.finish();
 
-                frame.sort_by_material();
-                renderer.egpu.render();
-
+                profiling::finish_frame!();
             }
 
             _ => {}

@@ -3,7 +3,7 @@ use easy_gpu::assets::{Buffer, BufferUsages, compute_texture_float, compute_text
 use easy_gpu::assets_manager::Handle;
 use easy_gpu::frame::Frame;
 use easy_gpu::wgpu::{Extent3d, FilterMode, TextureFormat, TextureUsages};
-use easy_gpu::wgpu::TextureFormat::{Rgba16Float, Rgba8Unorm};
+use easy_gpu::wgpu::TextureFormat::{Rgba8Unorm};
 use crate::game::terrain::chunk::CHUNK_SIZE;
 use crate::game::terrain::chunk_manager::{HORIZONTAL_CHUNK_LOAD_DISTANCE, VERTICAL_CHUNK_LOAD_DISTANCE};
 
@@ -24,6 +24,8 @@ pub struct LightingEngine{
 
     smooth_bg_a_to_b: Handle<ComputeBindGroup>,
     smooth_bg_b_to_a: Handle<ComputeBindGroup>,
+    big_smooth_bg_a_to_b: Handle<ComputeBindGroup>,
+    big_smooth_bg_b_to_a: Handle<ComputeBindGroup>,
     diffuse_bg_a_to_b: Handle<ComputeBindGroup>,
     diffuse_bg_b_to_a: Handle<ComputeBindGroup>,
     set_sky_light_bg: Handle<ComputeBindGroup>,
@@ -50,7 +52,7 @@ impl LightingEngine{
                 height: VERTICAL_CHUNK_LOAD_DISTANCE as u32*CHUNK_SIZE as u32*2 + CHUNK_SIZE as u32,
                 depth_or_array_layers: 1,
             })
-            .format(Rgba16Float)
+            .format(Rgba8Unorm)
             .usage(TextureUsages::STORAGE_BINDING | TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_SRC | TextureUsages::COPY_DST | TextureUsages::RENDER_ATTACHMENT);
 
         let diffuse_texture_a = diffuse_texture_builder.build(egpu);
@@ -67,7 +69,7 @@ impl LightingEngine{
                 height: VERTICAL_CHUNK_LOAD_DISTANCE as u32*CHUNK_SIZE as u32*4 + CHUNK_SIZE as u32 * 2,
                 depth_or_array_layers: 1,
             })
-            .format(Rgba16Float);
+            .format(Rgba8Unorm);
 
         let smooth_texture_a = smooth_texture_builder.build(egpu);
         let smooth_texture_b = smooth_texture_builder.build(egpu);
@@ -92,7 +94,7 @@ impl LightingEngine{
         let diffuse_pipeline = ComputePipelineBuilder::new(diffuse_shader)
             .bind_group_layout(&[
                 compute_texture_float(0),
-                storage_texture(1,Rgba16Float),
+                storage_texture(1,Rgba8Unorm),
                 compute_texture_uint(2),
             ])
             .entry_point("diffuse_light")
@@ -118,7 +120,7 @@ impl LightingEngine{
         let set_sky_light_pipeline = ComputePipelineBuilder::new(set_sky_shader)
             .bind_group_layout(&[
                 compute_texture_float(0),
-                storage_texture(1,Rgba16Float),
+                storage_texture(1,Rgba8Unorm),
                 compute_texture_uint(2),
                 compute_uniform(3)
             ])
@@ -134,7 +136,7 @@ impl LightingEngine{
 
         let set_light_sources_pipeline = ComputePipelineBuilder::new(set_sources_shader)
             .bind_group_layout(&[
-                storage_texture(0,Rgba16Float),
+                storage_texture(0,Rgba8Unorm),
                 compute_storage(1,true),
                 compute_uniform(2)
             ])
@@ -161,7 +163,7 @@ impl LightingEngine{
         let smooth_pipeline = ComputePipelineBuilder::new(smooth_shader)
             .bind_group_layout(&[
                 compute_texture_float(0),
-                storage_texture(1,TextureFormat::Rgba16Float)
+                storage_texture(1,TextureFormat::Rgba8Unorm)
             ])
             .entry_point("smooth_light")
             .build(egpu);
@@ -176,10 +178,19 @@ impl LightingEngine{
             .texture(1,smooth_texture_a)
             .build(egpu);
 
+        let big_smooth_bg_a_to_b = ComputeBindGroupBuilder::new(smooth_pipeline)
+            .texture(0,diffuse_texture_a)
+            .texture(1,diffuse_texture_b)
+            .build(egpu);
+        let big_smooth_bg_b_to_a = ComputeBindGroupBuilder::new(smooth_pipeline)
+            .texture(0,diffuse_texture_b)
+            .texture(1,diffuse_texture_a)
+            .build(egpu);
+
         let upscale_pipeline = ComputePipelineBuilder::new(upscale_shader)
             .bind_group_layout(&[
                 compute_texture_float(0),
-                storage_texture(1,TextureFormat::Rgba16Float),
+                storage_texture(1,TextureFormat::Rgba8Unorm),
             ])
             .entry_point("upscale_lightmap")
             .build(egpu);
@@ -228,6 +239,8 @@ impl LightingEngine{
             upscale_pipeline,
             smooth_bg_a_to_b,
             smooth_bg_b_to_a,
+            big_smooth_bg_a_to_b,
+            big_smooth_bg_b_to_a,
             diffuse_bg_a_to_b,
             diffuse_bg_b_to_a,
             set_sky_light_bg,
@@ -244,13 +257,7 @@ impl LightingEngine{
         }
     }
     
-    pub fn update(&mut self, egpu: &mut easy_gpu::Renderer,tiles: Vec<u8>,player_pos: [f32;2],lights:Vec<LightSource>){
-        egpu.write_texture(self.tile_storage_texture,tiles.as_slice(),1,Extent3d{
-            width: (HORIZONTAL_CHUNK_LOAD_DISTANCE*CHUNK_SIZE as i32) as u32 * 2+ CHUNK_SIZE as u32,
-            height: (VERTICAL_CHUNK_LOAD_DISTANCE*CHUNK_SIZE as i32) as u32 * 2+ CHUNK_SIZE as u32,
-            depth_or_array_layers: 1,
-        });
-
+    pub fn update_light_buffers(&mut self, egpu: &mut easy_gpu::Renderer,player_pos: [f32;2],lights:Vec<LightSource>){
         self.light_meta.pos = [
             (player_pos[0]/CHUNK_SIZE as f32).floor()*CHUNK_SIZE as f32,
             (player_pos[1]/CHUNK_SIZE as f32).floor()*CHUNK_SIZE as f32
@@ -260,11 +267,23 @@ impl LightingEngine{
         egpu.write_buffer(self.dynamic_lights_meta,DynamicLightMeta{
             pos: self.light_meta.pos,
             light_count: lights.len() as u32,
-            pad: 0.0,
+            mid: [
+                HORIZONTAL_CHUNK_LOAD_DISTANCE * CHUNK_SIZE as i32 ,
+                VERTICAL_CHUNK_LOAD_DISTANCE * CHUNK_SIZE as i32
+            ],
+            _pad: 0.0,
         });
 
         egpu.write_array_buffer(self.lights_buffer,lights.as_slice());
         self.num_lights = lights.len() as u32;
+    }
+
+    pub fn update_tile_buffer(&mut self, egpu: &mut easy_gpu::Renderer,tiles: Vec<u8>){
+        egpu.write_texture(self.tile_storage_texture,tiles.as_slice(),1,Extent3d{
+            width: (HORIZONTAL_CHUNK_LOAD_DISTANCE*CHUNK_SIZE as i32) as u32 * 2+ CHUNK_SIZE as u32,
+            height: (VERTICAL_CHUNK_LOAD_DISTANCE*CHUNK_SIZE as i32) as u32 * 2+ CHUNK_SIZE as u32,
+            depth_or_array_layers: 1,
+        });
     }
 
     pub fn compute(&self, frame: &mut Frame){
@@ -287,8 +306,6 @@ impl LightingEngine{
             self.set_sky_light_pipeline,
             (pixels.0/16, pixels.1/16, pixels.2),
         );
-
-
         frame.compute(
             self.occlusion_bg,
             self.occlusion_pipeline,
@@ -306,41 +323,39 @@ impl LightingEngine{
                 (pixels.0/16, pixels.0/16, pixels.2)
             );
         }
-
-        frame.compute(
-            self.set_light_sources_bg,
-            self.set_light_sources_pipeline,
-            (self.num_lights/64 + 1, 1, 1,),
-        );
-        frame.compute(
-            self.set_sky_light_bg,
-            self.set_sky_light_pipeline,
-            (pixels.0/16, pixels.1/16, pixels.2)
-        );
-
+        for _ in 0..2{
+            frame.compute(
+                self.big_smooth_bg_a_to_b,
+                self.smooth_pipeline,
+                (pixels.0/16, pixels.1/16, pixels.2)
+            );
+            frame.compute(
+                self.big_smooth_bg_b_to_a,
+                self.smooth_pipeline,
+                (pixels.0/16, pixels.0/16, pixels.2)
+            );
+        }
         pixels = (
             pixels.0 * 2,
             pixels.1 * 2,
             1
         );
-
         frame.compute(
             self.upscale_bg,
             self.upscale_pipeline,
             (pixels.0/16, pixels.1/16, pixels.2)
         );
-        for _ in 0..4{
-            frame.compute(
-                self.smooth_bg_a_to_b,
-                self.smooth_pipeline,
-                (pixels.0, pixels.1/16, pixels.2)
-            );
-            frame.compute(
-                self.smooth_bg_b_to_a,
-                self.smooth_pipeline,
-                (pixels.0/16, pixels.1, pixels.2)
-            );
-        }
+        frame.compute(
+            self.smooth_bg_a_to_b,
+            self.smooth_pipeline,
+            (pixels.0/16, pixels.1/16, pixels.2)
+        );
+        frame.compute(
+            self.smooth_bg_b_to_a,
+            self.smooth_pipeline,
+            (pixels.0/16, pixels.1, pixels.2)
+        );
+
     }
 }
 
@@ -380,7 +395,8 @@ impl LightSource{
 pub struct DynamicLightMeta {
     pub pos: [f32; 2],
     pub light_count: u32,
-    pad: f32,
+    _pad: f32,
+    pub mid: [i32; 2],
 }
 
 #[repr(C)]

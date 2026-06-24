@@ -22,7 +22,7 @@ impl Tile{
 pub struct Deco {
     pub x: u8,
     pub y: u8,
-    id: u8,
+    pub id: u8,
 }
 
 impl Deco{
@@ -40,7 +40,7 @@ pub const TILE_LIGHT_SOURCES: [Option<[f32;3]>;9] = [
     None, //1
     None, //2
     None, //3
-    None, //4
+    Some([1.0,0.2,0.2]), //4
     None, //5
     Some([0.1,0.4,0.7]), //6
     None, //7

@@ -5,7 +5,7 @@ use crate::game::terrain::chunk::CHUNK_SIZE;
 
 pub struct Camera{
     pub buffer: Handle<Buffer>,
-    data: Data,
+    pub data: Data,
 }
 
 impl Camera{
@@ -41,7 +41,7 @@ impl Camera{
             self.data.zoom -= ZOOM * dt;
         }
 
-        self.data.zoom = self.data.zoom.clamp(0.018,0.1);
+        self.data.zoom = self.data.zoom.clamp(0.015,0.1);
 
         egpu.write_buffer(self.buffer,self.data);
     }
@@ -56,8 +56,8 @@ impl Camera{
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
-struct Data {
+pub struct Data {
     position: [f32;2],
     zoom: f32,
-    ratio: f32,
+    pub ratio: f32,
 }

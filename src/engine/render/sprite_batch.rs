@@ -12,8 +12,8 @@ use crate::game::physics::transform::Transform;
 
 pub struct SpriteBatchEngine{
     sprite_batch_pipeline: Handle<RenderPipeline>,
-    quad_mesh: Handle<Mesh>,
-    sampler: Handle<Sampler>,
+    pub quad_mesh: Handle<Mesh>,
+    pub sampler: Handle<Sampler>,
     batches: AHashMap<Handle<Material>,Vec<Instance>>,
 }
 
@@ -76,7 +76,8 @@ impl SpriteBatchEngine{
     pub fn draw_sprites(&mut self, frame: &mut Frame,world: &World){
         for (_,(sprite, transform)) in world.query::<(&Sprite,&Transform)>().iter(){
             let instance = Instance{
-                position: transform.translation,
+                position: [transform.translation[0],transform.translation[1],0.5],
+                _pad: 0.0,
                 rotation: transform.rotation,
                 scale: transform.scale,
                 colour: sprite.colour,
@@ -145,7 +146,8 @@ impl Sprite{
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct Instance {
-    pub position: [f32;2],
+    pub position: [f32;3],
+    pub(crate) _pad: f32,
     pub rotation: f32,
     pub scale: f32,
     pub tex_index: u32,
@@ -158,11 +160,11 @@ impl GpuInstance for Instance{
         BufferLayout::new()
             .stride(size_of::<Self>() as u64)
             .step_mode(VertexStepMode::Instance)
-            .attribute(1,0,VertexFormat::Float32x2)
-            .attribute(2,8,VertexFormat::Float32)
-            .attribute(3,12,VertexFormat::Float32)
-            .attribute(4,16,VertexFormat::Uint32)
-            .attribute(5,20,VertexFormat::Float32x4)
+            .attribute(1,0,VertexFormat::Float32x3)
+            .attribute(2,16,VertexFormat::Float32)
+            .attribute(3,20,VertexFormat::Float32)
+            .attribute(4,24,VertexFormat::Uint32)
+            .attribute(5,28,VertexFormat::Float32x4)
     }
 }
 

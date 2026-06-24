@@ -1,6 +1,6 @@
 use fast_noise_lite_rs::{FastNoiseLite, FractalType, NoiseType};
 use rand::prelude::StdRng;
-use rand::{Rng, SeedableRng};
+use rand::{random_range, Rng, SeedableRng};
 use crate::game::terrain::chunk::{CHUNK_SIZE, ChunkPosition};
 use crate::game::terrain::tile::{Deco, Tile};
 
@@ -13,11 +13,11 @@ pub struct TerrainGenerator{
 
 impl TerrainGenerator{
     pub fn new()->Self{
-        let seed = 1000;
+        let seed = 70;
 
         let mut big_noise = FastNoiseLite::new(seed as i32);
         big_noise.set_noise_type(NoiseType::OpenSimplex2);
-        big_noise.set_frequency(0.005);
+        big_noise.set_frequency(0.009);
         big_noise.set_fractal_type(FractalType::FBm);
         big_noise.set_fractal_octaves(4);
         big_noise.set_fractal_gain(0.5);
@@ -47,7 +47,7 @@ impl TerrainGenerator{
         }
     }
     pub fn chunk_tiles(&self, position: &ChunkPosition) -> [Vec<Tile>;2]{
-        if position.y > 30{
+        if position.y > 50{
             return [
                 vec![Tile::new(0);CHUNK_SIZE*CHUNK_SIZE],
                 vec![Tile::new(0);CHUNK_SIZE*CHUNK_SIZE],
@@ -61,7 +61,7 @@ impl TerrainGenerator{
 
         for x in 0..CHUNK_SIZE {
             let tile_x = (position.x * CHUNK_SIZE as i32 + x as i32) as f32;
-            let height = self.big_noise.get_noise_2d(tile_x,0.) * 30.;
+            let height = (self.big_noise.get_noise_2d(tile_x,0.)+1.0) * 25.;
 
             for y in 0..CHUNK_SIZE {
                 let tile_y = (position.y * CHUNK_SIZE as i32 +y as i32) as f32;
@@ -73,7 +73,7 @@ impl TerrainGenerator{
                 else {
                     let dirt_level = (height - 100. + self.small_noise.get_noise_2d(tile_x,tile_y) *200.).min(height);
 
-                    if (-0.1..-0.0).contains(&self.big_noise.get_noise_2d(tile_x,tile_y)) || self.med_noise.get_noise_2d(tile_x,tile_y) < -0.4 {
+                    if (-0.25..-0.1).contains(&self.big_noise.get_noise_2d(tile_x,tile_y)) || self.med_noise.get_noise_2d(tile_x,tile_y) < -0.5 {
                         tiles[1].push(Tile::new(0));
                         if tile_y <= dirt_level {
                             tiles[0].push(Tile::new(3));
@@ -83,7 +83,7 @@ impl TerrainGenerator{
                             tiles[0].push(Tile::new(0));
                         }
                     } else {
-                        let ore = self.small_noise.get_noise_2d(tile_x,tile_y);
+                        let ore = self.med_noise.get_noise_2d(-tile_x,-tile_y);
 
                         if tile_y <= dirt_level {
                             if ore < -0.6 {
@@ -103,12 +103,17 @@ impl TerrainGenerator{
                                 tiles[1].push(Tile::new(3));
                                 tiles[0].push(Tile::new(3));
                             }
-                        } else if tile_y < height - 2. {
+                        } else if tile_y < height - 15. {
                             tiles[1].push(Tile::new(2));
                             tiles[0].push(Tile::new(2));
                         } else {
                             tiles[1].push(Tile::new(1));
-                            tiles[0].push(Tile::new(0));
+                            if tile_y < height - 2. {
+                                tiles[0].push(Tile::new(2));
+                            }
+                            else{
+                                tiles[0].push(Tile::new(0));
+                            }
                         }
                     }
                 }
@@ -123,10 +128,18 @@ impl TerrainGenerator{
         let mut rng = StdRng::seed_from_u64(self.seed);
         for x in 0..CHUNK_SIZE {
             for y in 0..CHUNK_SIZE {
-                if rng.random_bool(0.3) {
-                    if !tiles[x * CHUNK_SIZE + y].solid() {
-                        if y > 0 && tiles[x * CHUNK_SIZE + y - 1].id == 1 {
-                            deco.push(Deco::new(0, x as u8, y as u8))
+                if rng.random_bool(0.5) {
+                    let index = x * CHUNK_SIZE + y;
+                    if !tiles[index].solid() {
+                        if y > 0 && tiles[index - 1].id == 1{
+                            deco.push(Deco::new(rng.random_range(0..3), x as u8, y as u8));
+                        }
+                        else if y < CHUNK_SIZE - 1 && tiles[index + 1].id == 1 {
+                            for i in 0..random_range(MIN_VINE_LENGTH..=MAX_VINE_LENGTH){
+                                if i <= y as u8{
+                                deco.push(Deco::new(3, x as u8, y as u8-i as u8));
+                                }
+                            }
                         }
                     }
                 }
@@ -135,3 +148,6 @@ impl TerrainGenerator{
         deco
     }
 }
+
+pub const MAX_VINE_LENGTH: u8 = 10;
+const MIN_VINE_LENGTH: u8 = 3;

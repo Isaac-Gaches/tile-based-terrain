@@ -1,4 +1,5 @@
 pub mod definition;
 pub mod projectile;
 pub mod item_registry;
-mod inventory;
+pub mod inventory;
+pub mod placeable;

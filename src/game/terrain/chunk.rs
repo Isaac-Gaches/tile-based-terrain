@@ -1,10 +1,12 @@
+use ahash::{AHashMap, HashMap};
 use easy_gpu::assets::{Material, Mesh};
 use easy_gpu::assets_manager::Handle;
 use easy_gpu::frame::Frame;
-use hecs::World;
+use hecs::{Entity, World};
 use serde::{Deserialize, Serialize};
 use crate::engine::asset_registry::AssetRegistry;
 use crate::engine::render::{MeshVertex, Sprite};
+use crate::game::entities::grass::{Grass, Vine};
 use crate::game::physics::transform::Transform;
 use crate::game::terrain::chunk_manager::ChunkBorders;
 use crate::game::terrain::terrain_generator::TerrainGenerator;
@@ -44,16 +46,35 @@ pub struct ChunkData {
     deco: Vec<Deco>,
 }
 
-
-
 impl ChunkData {
     pub fn new(position: &ChunkPosition,generator: &TerrainGenerator) -> Self{
-        let tiles = generator.chunk_tiles(position);
+        let mut tiles = generator.chunk_tiles(position);
+        Self::kill_grass(&mut tiles[1]);
         let deco = generator.generate_deco(&tiles[1]);
 
         Self{
             tiles,
             deco,
+        }
+    }
+    pub fn kill_grass(tiles: &mut Vec<Tile>){
+        for x in 1..CHUNK_SIZE-1{
+            for y in 1..CHUNK_SIZE-1{
+                 if tiles[x * CHUNK_SIZE + y].id == 1{
+                     let mut kill = true;
+                     'outer: for i in -1..=1{
+                        for j in -1..=1{
+                            if tiles[(x as i32+i) as usize * CHUNK_SIZE + (y  as i32+j) as usize].id == 0{
+                                kill = false;
+                                break 'outer;
+                            }
+                        }
+                     }
+                     if kill{
+                         tiles[x * CHUNK_SIZE + y].id = 2
+                     }
+                }
+            }
         }
     }
 }
@@ -63,30 +84,61 @@ pub struct Chunk{
     pub meshes: [Option<Handle<Mesh>>;2],
     pub dirty: [bool;2],
     pub save: bool,
+    deco_entities: AHashMap<[i32;2],Entity>,
 }
 
 impl Chunk{
     pub fn new(data:ChunkData)->Self{
-        Self{
+         Self{
             data,
             meshes: [None,None],
             dirty: [true;2],
-            save: false,
-        }
+            save: false, 
+             deco_entities: AHashMap::new(),
+         }
     }
 
-    pub fn spawn_deco(&self, world: &mut World,chunk_position: &ChunkPosition, assets: &AssetRegistry){
-        for deco in &self.data.deco{
-            world.spawn((
-                Transform::new([chunk_position.x as f32 * CHUNK_SIZE as f32 + deco.x as f32 ,chunk_position.y as f32 * CHUNK_SIZE as f32 + deco.y as f32 - 0.15],1.0),
-                Sprite::new(assets.natural_deco_mat,0)
-            ));
+    pub fn spawn_deco(&mut self, world: &mut World,chunk_position: &ChunkPosition, assets: &AssetRegistry){
+        if self.deco_entities.len() == 0 {
+            for deco in &self.data.deco {
+                let entity =  if deco.id == 3 || deco.id == 4 {
+                    world.spawn((
+                        Transform::new([chunk_position.x as f32 * CHUNK_SIZE as f32 + deco.x as f32, chunk_position.y as f32 * CHUNK_SIZE as f32 + deco.y as f32 + 0.15], 1.0),
+                        Sprite::new(assets.natural_deco_mat, deco.id as u32),
+                        Vine,
+                    ))
+                }
+                else{
+                    world.spawn((
+                        Transform::new([chunk_position.x as f32 * CHUNK_SIZE as f32 + deco.x as f32, chunk_position.y as f32 * CHUNK_SIZE as f32 + deco.y as f32 - 0.15], 1.0),
+                        Sprite::new(assets.natural_deco_mat, deco.id as u32),
+                        Grass,
+                    ))
+                };
+                self.deco_entities.insert([chunk_position.x * CHUNK_SIZE as i32 + deco.x as i32, chunk_position.y * CHUNK_SIZE as i32 + deco.y as i32],entity);
+            }
+        }
+    }
+    
+    pub fn despawn_deco(&self, world: &mut World){
+        for entity in self.deco_entities.values(){
+            let _ = world.despawn(*entity);
         }
     }
 
     #[inline(always)]
     pub fn get_tile(&self, x: usize, y: usize, layer: usize) -> &Tile{
         &self.data.tiles[layer][x * CHUNK_SIZE + y]
+    }
+
+    #[inline(always)]
+    pub fn get_deco(&self, x: i32, y: i32) -> Option<&Entity>{
+        self.deco_entities.get(&[x,y])
+    }
+
+    #[inline(always)]
+    pub fn remove_deco(&mut self, x: i32, y: i32){
+        self.deco_entities.remove(&[x,y]);
     }
 
     pub fn set_tile(&mut self, x: usize, y: usize,id:u8, layer: usize){
@@ -117,8 +169,8 @@ impl Chunk{
         self.meshes = [None,None];
     }
 
-    pub fn draw(&self,frame: &mut Frame,materials: &Vec<Handle<Material>>){
-        for (mesh,material) in self.meshes.iter().zip(materials.iter()){
+    pub fn draw(&self,frame: &mut Frame,asset_registry: &AssetRegistry){
+        for (mesh,material) in self.meshes.iter().zip(asset_registry.mesh_mats.iter()){
             if let Some(mesh_handle) = mesh{
                 frame.draw(
                     material.clone(),
